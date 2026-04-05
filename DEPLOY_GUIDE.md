@@ -64,7 +64,7 @@
 
 ### 目标
 
-验证系统的通信链路和代码逻辑是否正确。所有服务运行在一台机器上，不加载任何 ML 模型，不需要 GPU。
+验证"文档索引 -> 向量存储 -> 检索查询"完整数据流的正确性。所有服务运行在一台机器上，Inference Worker 使用 mock 模式（随机向量/模拟数据），不加载任何 ML 模型，不需要 GPU。
 
 ### 物理架构
 
@@ -85,7 +85,37 @@ pip install fastapi uvicorn
 
 > mock 模式不需要 torch、transformers 等重型依赖。
 
-### 启动步骤
+### 启动 Milvus
+
+本地测试需要 Milvus 运行，用于存储向量索引和 BM25 数据。使用官方 Docker Compose 配置安装：
+
+```bash
+# 下载 Milvus 官方 docker-compose（国内镜像）
+mkdir -p milvus && cd milvus
+wget https://ghfast.top/https://github.com/milvus-io/milvus/releases/download/v2.5.27/milvus-standalone-docker-compose.yml -O docker-compose.yml
+# 如果 ghfast.top 不可用，替换为以下任一镜像：
+#   https://mirror.ghproxy.com/https://github.com/...
+#   https://gh-proxy.com/https://github.com/...
+#   或直接在浏览器下载后 scp 上传
+
+# Docker 镜像加速（国内服务器必须配置）
+sudo tee /etc/docker/daemon.json <<EOF
+{
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me"
+  ]
+}
+EOF
+sudo systemctl restart docker
+
+# 启动 Milvus
+sudo docker compose up -d
+# 等待约 90 秒，确认三个容器均为 healthy
+sudo docker compose ps
+```
+
+### 启动服务
 
 终端 1 — Inference Worker (mock)：
 ```bash
@@ -97,23 +127,39 @@ python -m inference.main --mode local
 python -m server.main --mode local
 ```
 
-终端 3 — Client：
+### 运行全链路测试
+
+终端 3 — 执行自动化测试脚本：
+
 ```bash
-python -m client.client --mode local query "What is RAG?"
+python tests/test_local.py
 ```
 
-或使用启动脚本：
+测试脚本会自动执行以下步骤：
+
+1. **健康检查** — 验证 Inference Worker（mock 模式）和 RAG Server 在线
+2. **Inference 端点测试** — 逐个验证 classify、embed、hyde、rerank、compress、generate 六个端点
+3. **索引测试** — 上传 `tests/local_test_data/` 中的测试文档，验证文档切块 -> embed -> 写入 Milvus -> 构建 BM25 索引
+4. **查询测试** — 发起三条查询，验证 Milvus 检索 + BM25 检索 + hybrid fusion + 全链路返回结果
+5. **清理** — 删除测试用的 collection 和 BM25 索引文件
+
+### 手动测试（可选）
+
+如需手动逐步验证：
+
 ```bash
-bash scripts/start_inference.sh local
-bash scripts/start_server.sh local
-bash scripts/start_client.sh local query "What is RAG?"
+# 索引测试文档
+python -m client.client --mode local index tests/local_test_data/
+
+# 查询
+python -m client.client --mode local query "What is RAG?"
 ```
 
 ### 验证清单
 
 - [ ] `curl http://localhost:8000/health` 返回 `{"status":"ok","mode":"mock"}`
 - [ ] `curl http://localhost:8001/health` 返回 `{"status":"ok"}`
-- [ ] Client 收到 `[MOCK] This is a mock answer to: ...` 格式的回复
+- [ ] `python tests/test_local.py` 全部 PASS
 - [ ] 日志中无报错
 
 全部通过后进入阶段二。
@@ -166,12 +212,27 @@ bash scripts/start_inference.sh staging
 # 上传代码（从本地执行）
 scp -r D:\Source\RAG4\rag_deploy root@<public_server_ip>:/root/rag_deploy
 
-# 安装 Docker + 启动 Milvus
-cd /root/rag_deploy
+# 安装 Docker
 curl -fsSL https://get.docker.com | sh
 systemctl start docker && systemctl enable docker
-cd docker && docker-compose up -d
-# 等待约 90 秒
+
+# Docker 镜像加速（国内服务器必须配置）
+sudo tee /etc/docker/daemon.json <<EOF
+{
+  "registry-mirrors": [
+    "https://docker.1ms.run",
+    "https://docker.xuanyuan.me"
+  ]
+}
+EOF
+sudo systemctl restart docker
+
+# 安装 Milvus Standalone（官方方式 + 国内加速下载）
+mkdir -p /root/milvus && cd /root/milvus
+wget https://ghfast.top/https://github.com/milvus-io/milvus/releases/download/v2.5.27/milvus-standalone-docker-compose.yml -O docker-compose.yml
+sudo docker compose up -d
+# 等待约 90 秒，确认三个容器均为 healthy
+sudo docker compose ps
 
 # 安装 Python 依赖
 cd /root/rag_deploy
@@ -190,19 +251,35 @@ bash scripts/start_server.sh staging
 
 验证：`curl http://localhost:8000/health` 返回 `{"status":"ok"}`
 
-### 2.3 建立知识库
+### 2.3 运行全链路测试
+
+在用户 PC 执行自动化测试脚本，脚本会自动拉取 SciFact 数据集、建立索引、执行查询并验证结果：
 
 ```bash
-# 在用户 PC 执行
-python -m client.client --mode staging index /path/to/documents/
+python tests/test_staging.py
+# 或指定 server 地址
+python tests/test_staging.py --server-url http://<public_server_ip>:8000
 ```
 
-索引过程：切块 -> GPU 生成向量 -> 存入 Milvus -> 本地构建 BM25
+测试脚本执行流程：
+1. 健康检查 — 验证 RAG Server 和 Inference Worker 通路
+2. 拉取 SciFact — 从 HuggingFace 下载 BeIR/scifact（corpus + queries + qrels）
+3. 索引 — 取前 1000 篇文档，切块 -> GPU 生成向量 -> 存入 Milvus -> 构建 BM25
+4. 查询 — 取 10 条测试查询，验证检索文档数、答案质量、与 qrels 标注的相关文档命中情况
+5. 输出查询统计：平均检索文档数、真实答案数、命中相关文档数
 
-### 2.4 查询测试
+### 2.4 手动测试（可选）
+
+如需手动验证或使用自己的数据：
 
 ```bash
+# 索引自己的文档
+python -m client.client --mode staging index /path/to/documents/
+
+# 单次查询
 python -m client.client --mode staging query "What is RAG?"
+
+# 交互式查询
 python -m client.client --mode staging query --interactive
 ```
 
@@ -228,11 +305,11 @@ python -m client.client --mode staging query --interactive
 ### 2.6 验证清单
 
 - [ ] GPU 服务器：Inference Worker 启动，`/health` 返回 staging
-- [ ] 公网服务器：Milvus 运行，`docker-compose ps` 三个容器 healthy
+- [ ] 公网服务器：Milvus 运行，`sudo docker compose ps` 三个容器 healthy
 - [ ] 公网服务器：SSH 隧道建立，`curl localhost:8001/health` 通
 - [ ] 公网服务器：RAG Server 启动，`/health` 返回 ok
-- [ ] Client：上传文档成功
-- [ ] Client：查询返回真实答案（非 `[MOCK]` 前缀）
+- [ ] `python tests/test_staging.py` 全部 PASS
+- [ ] 查询返回真实答案（非 `[MOCK]` 前缀）
 - [ ] 日志无报错
 
 全部通过后进入阶段三。

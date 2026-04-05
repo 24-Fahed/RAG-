@@ -1,0 +1,7 @@
+Vector databases are specialized storage systems designed to efficiently store and query high-dimensional embedding vectors. In the context of RAG systems, they enable semantic similarity search, where documents are retrieved based on meaning rather than exact keyword matches.
+
+Milvus is an open-source vector database that supports multiple index types including IVF_FLAT, HNSW, and IVF_PQ. For RAG applications, the IVF_FLAT index with COSINE distance metric is commonly used. Documents are first converted into embedding vectors using models like BGE-base-en-v1.5, which produces 768-dimensional vectors. These vectors are then inserted into Milvus collections.
+
+When a query arrives, it is also converted into an embedding vector. Milvus performs an approximate nearest neighbor search to find the most similar document vectors. The search results include both the document content and a similarity score. The top_k parameter controls how many results are returned.
+
+BM25 is a complementary sparse retrieval method based on term frequency and inverse document frequency. While vector search captures semantic similarity, BM25 excels at exact keyword matching. Combining both methods through hybrid fusion often produces better retrieval results than either method alone. The fusion formula is: score = alpha * sparse_score + (1 - alpha) * dense_score, where alpha controls the balance between sparse and dense retrieval.

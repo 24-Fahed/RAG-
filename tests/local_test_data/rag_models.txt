@@ -1,0 +1,11 @@
+The RAG system uses several machine learning models working together in a pipeline. Each model serves a specific purpose and has different computational requirements.
+
+The classification model is a BERT-based binary classifier that determines whether a query needs external retrieval. It uses google-bert/bert-base-multilingual-cased and outputs a label of 0 (no retrieval needed) or 1 (retrieval needed). This model is relatively lightweight at around 700MB.
+
+For text embedding, the system uses BAAI/bge-base-en-v1.5, which produces 768-dimensional vectors. These embeddings capture the semantic meaning of text and enable similarity search in the vector database. The embedding model requires approximately 400MB of memory.
+
+Reranking models reorder retrieved documents by relevance. The system supports MonoT5, BGE-reranker, RankLLaMA, and TILDE. MonoT5 is the recommended default, using a T5-base model to score document relevance by predicting true or false for each query-document pair.
+
+Compression models reduce the length of retrieved context to fit within the language model's context window. Recomp extractive compression selects the most relevant sentences from the context, while abstractive compression generates a summary. LLMLingua provides token-level compression as an alternative approach.
+
+The generation model is typically LLaMA-3-8B-Instruct, which produces the final answer. This is the largest model in the pipeline, requiring approximately 16GB of GPU memory in fp16 precision. It takes the compressed context and the user query as input and generates a coherent answer.
