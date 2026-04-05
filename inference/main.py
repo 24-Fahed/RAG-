@@ -9,6 +9,9 @@
 用法: python -m inference.main --mode local
 """
 
+import os
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+
 import argparse
 
 # 在导入任何依赖配置的模块之前，先解析 --mode 参数
