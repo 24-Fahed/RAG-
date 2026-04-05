@@ -88,17 +88,18 @@ def run_query_pipeline(
 ) -> dict:
     """运行完整的 RAG 查询流水线，分布在 RAG 服务端和 GPU 之间。"""
 
-    # --- 第 1 步：分类 ---
-    label = inference_client.classify(query)
-
-    if label == 0:
-        return {
-            "answer": "No retrieval needed for this query.",
-            "retrieved_documents": [],
-            "reranked_documents": [],
-            "hyde_document": None,
-            "classification_label": label,
-        }
+    # --- 第 1 步：分类（暂时跳过，分类器未微调）---
+    # label = inference_client.classify(query)
+    # if label == 0:
+    #     return {
+    #         "answer": "No retrieval needed for this query.",
+    #         "retrieved_documents": [],
+    #         "reranked_documents": [],
+    #         "hyde_document": None,
+    #         "classification_label": label,
+    #     }
+    # 临时：所有查询都走检索
+    label = 1
 
     # --- 第 2 步：HyDE（可选）---
     hyde_document = None
