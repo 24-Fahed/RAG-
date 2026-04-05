@@ -13,9 +13,13 @@ import os
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 
 # bypass transformers torch.load 安全检查（要求 torch>=2.6）
-# 不升级 torch，直接禁用该检查
+# transformers 各子模块通过 from ... import 绑定了自己的引用，需要全部替换
 import transformers.utils.import_utils
 transformers.utils.import_utils.check_torch_load_is_safe = lambda: None
+import sys
+for _name, _mod in list(sys.modules.items()):
+    if _name.startswith("transformers") and hasattr(_mod, "check_torch_load_is_safe"):
+        _mod.check_torch_load_is_safe = lambda: None
 
 import argparse
 
