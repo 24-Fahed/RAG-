@@ -1,0 +1,14 @@
+# RAG Server 本地测试配置
+# 所有服务运行在一台机器上，连接本地 Inference Worker。
+
+mode: local
+
+server:
+  host: "0.0.0.0"
+  port: 8001
+  milvus_host: "localhost"
+  milvus_port: 19530
+  inference_url: "http://localhost:8000"
+  collection_name: "rag_collection"
+  embedding_dim: 768
+  bm25_index_dir: "./bm25_data"

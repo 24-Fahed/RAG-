@@ -26,16 +26,14 @@ pip install -r requirements.txt
 
 ### 启动
 
-所有配置从 `deploy.yaml`（项目根目录）读取。将 `mode` 设置为 `staging` 或 `production`：
+通过环境变量 `DEPLOY_MODE` 选择配置文件（`deploy_local.yaml` / `deploy_staging.yaml` / `deploy_production.yaml`）：
 
 ```bash
-# 在 deploy.yaml 中设置:
-#   mode: staging   （联调联试）
-#   mode: production（正式上线）
+export DEPLOY_MODE=staging    # 或 local / production
 python main.py
 ```
 
-服务器默认监听 `0.0.0.0:8000`（可在 `deploy.yaml` 中配置）。
+服务器默认监听 `0.0.0.0:8000`（可在配置文件中修改）。
 
 ## 接口
 

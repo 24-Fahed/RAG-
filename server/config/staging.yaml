@@ -1,0 +1,14 @@
+# RAG Server 联调联试配置
+# 部署到公网服务器，通过 SSH 隧道连接 GPU 服务器。
+
+mode: staging
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  milvus_host: "localhost"
+  milvus_port: 19530
+  inference_url: "http://localhost:8001"
+  collection_name: "rag_collection"
+  embedding_dim: 768
+  bm25_index_dir: "./bm25_data"

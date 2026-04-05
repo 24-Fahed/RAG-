@@ -1,0 +1,7 @@
+# Client 生产环境配置
+# 连接公网服务器的 RAG Server（正式上线）。
+
+mode: production
+
+client:
+  server_url: "http://<public_server_ip>:8000"

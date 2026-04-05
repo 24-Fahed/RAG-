@@ -58,15 +58,20 @@ class MilvusVectorStore:
         )
 
         # 为向量搜索创建索引
+        index_params = self.client.prepare_index_params()
+        index_params.add_index(
+            field_name="embedding",
+            index_type="IVF_FLAT",
+            metric_type="COSINE",
+            params={"nlist": 128},
+        )
         self.client.create_index(
             collection_name=self.collection_name,
-            field_name="embedding",
-            index_params={
-                "index_type": "IVF_FLAT",
-                "metric_type": "COSINE",
-                "params": {"nlist": 128},
-            },
+            index_params=index_params,
         )
+
+        # 加载集合到内存，否则无法搜索
+        self.client.load_collection(self.collection_name)
 
     def insert(self, embeddings: list[list[float]], contents: list[str], metadatas: list[str]):
         """

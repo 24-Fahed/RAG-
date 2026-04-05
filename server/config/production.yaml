@@ -1,0 +1,14 @@
+# RAG Server 生产环境配置
+# 与联调联试使用相同的公网服务器，正式上线版本。
+
+mode: production
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  milvus_host: "localhost"
+  milvus_port: 19530
+  inference_url: "http://localhost:8001"
+  collection_name: "rag_collection"
+  embedding_dim: 768
+  bm25_index_dir: "./bm25_data"

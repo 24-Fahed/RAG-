@@ -1,17 +1,27 @@
 """RAG 客户端 - 用于查询和文档提交的命令行接口。
 
 用法：
-    python client.py query "什么是 RAG？"
-    python client.py query --interactive
-    python client.py index ./documents/
+    python -m client.client --mode local query "什么是 RAG？"
+    python -m client.client --mode staging query --interactive
+    python -m client.client --mode production index ./documents/
 """
 
 import argparse
 import sys
 import os
 
-import httpx
+# 先解析 --mode，在导入配置模块之前
+_pre_parser = argparse.ArgumentParser(add_help=False)
+_pre_parser.add_argument("--mode", default="local", choices=["local", "staging", "production"],
+                         help="部署模式: local / staging / production (默认: local)")
+_pre_args, _ = _pre_parser.parse_known_args()
+
+from client.config import load_config
+load_config(_pre_args.mode)
+
 from client.config import RAG_SERVER_URL
+
+import httpx
 
 
 def query_single(query: str, **kwargs):
@@ -100,7 +110,7 @@ def index_documents(data_path: str, collection: str = "rag_collection"):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="RAG Client")
+    parser = argparse.ArgumentParser(description="RAG Client", parents=[_pre_parser])
     sub = parser.add_subparsers(dest="command")
 
     # 查询

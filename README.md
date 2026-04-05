@@ -22,43 +22,52 @@
 
 ## 配置
 
-所有配置集中在项目根目录的 `deploy.yaml` 中，支持三种模式：
+每个程序单元有独立的配置目录（`config/`），包含三个版本的 YAML 配置：
 
-| 模式 | 说明 |
-|------|------|
-| `mock` | 本地测试，无需 GPU，推理返回模拟数据。 |
-| `staging` | 部署到真实服务器，用于集成测试和参数调优。 |
-| `production` | 与 staging 相同的服务器，正式上线版本。 |
+| 程序单元 | 配置目录 | 配置文件 |
+|----------|----------|----------|
+| PU-1 Client | `client/config/` | `local.yaml`, `staging.yaml`, `production.yaml` |
+| PU-2 RAG Server | `server/config/` | `local.yaml`, `staging.yaml`, `production.yaml` |
+| PU-3 Inference Worker | `inference/config/` | `local.yaml`, `staging.yaml`, `production.yaml` |
 
-通过编辑 `deploy.yaml` 切换模式：
+通过 `--mode` 参数选择配置版本：
 
-```yaml
-mode: mock   # mock | staging | production
+```bash
+python -m inference.main --mode local       # 使用 inference/config/local.yaml
+python -m server.main --mode staging        # 使用 server/config/staging.yaml
+python -m client.client --mode production query "What is RAG?"
 ```
 
-## 快速开始（Mock 模式 - 本地测试）
+或通过启动脚本：
 
-Mock 模式可以在本地无 GPU 和真实模型的情况下验证整个流程。
+```bash
+bash scripts/start_inference.sh staging
+bash scripts/start_server.sh production
+bash scripts/start_client.sh local query "What is RAG?"
+```
+
+## 快速开始（本地测试）
+
+本地测试无需 GPU 和真实模型。
 
 ### 1. 启动 Inference Worker（mock）
 
 ```bash
 cd rag_deploy
-# deploy.yaml 中确认 mode: mock
-python -m inference.main
+python -m inference.main --mode local
 ```
 
 ### 2. 启动 RAG Server
 
 ```bash
 # 另一个终端
-python -m server.main
+python -m server.main --mode local
 ```
 
 ### 3. 使用 Client
 
 ```bash
-python client/client.py query "What is RAG?"
+python -m client.client --mode local query "What is RAG?"
 ```
 
 ## 生产部署

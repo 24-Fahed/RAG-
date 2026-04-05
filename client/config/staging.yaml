@@ -1,0 +1,7 @@
+# Client 联调联试配置
+# 连接公网服务器的 RAG Server。
+
+mode: staging
+
+client:
+  server_url: "http://<public_server_ip>:8000"

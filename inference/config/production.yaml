@@ -1,0 +1,17 @@
+# Inference Worker 生产环境配置
+# 与联调联试使用相同的 GPU 服务器，正式上线版本。
+
+mode: production
+
+inference:
+  host: "0.0.0.0"
+  port: 8000
+  device: "cuda"
+  llm_model_path: "/root/models/llama3-8b-ragga"
+  classification_model: "google-bert/bert-base-multilingual-cased"
+  embedding_model: "BAAI/bge-base-en-v1.5"
+  monot5_model: "castorini/monot5-base-msmarco-10k"
+  bge_reranker_model: "BAAI/bge-reranker-v2-m3"
+  recomp_extractive_model: "fangyuan/nq_extractive_compressor"
+  recomp_abstractive_model: "fangyuan/nq_abstractive_compressor"
+  llmlingua_model: "microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank"

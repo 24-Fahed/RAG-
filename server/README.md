@@ -32,9 +32,10 @@ autossh -M 0 -N -L 8001:localhost:8000 -p <port> root@connect.westb.seetacloud.c
 
 ### 启动服务端
 
-所有配置从 `deploy.yaml` 读取。请确保 `mode` 设置为 `staging` 或 `production`：
+通过环境变量 `DEPLOY_MODE` 选择配置文件：
 
 ```bash
+export DEPLOY_MODE=staging    # 或 local / production
 pip install -r requirements.txt
 python main.py
 ```

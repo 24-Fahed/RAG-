@@ -113,7 +113,10 @@ def run_query_pipeline(
         query_embedding = inference_client.embed([effective_query])[0]
         from rag_langgraph.indexing.vectorstore import MilvusVectorStore
         store = MilvusVectorStore(collection_name=collection_name, dim=EMBEDDING_DIM)
-        dense_results = store.search(query_embedding, top_k=search_k)
+        try:
+            dense_results = store.search(query_embedding, top_k=search_k)
+        except Exception as e:
+            logger.warning(f"Milvus search failed: {e}, returning empty results")
 
     # --- 第 4 步：稀疏检索（BM25，本地）---
     sparse_results = []

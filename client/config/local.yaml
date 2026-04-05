@@ -1,0 +1,7 @@
+# Client 本地测试配置
+# 连接本地 RAG Server。
+
+mode: local
+
+client:
+  server_url: "http://127.0.0.1:8001"
