@@ -1,0 +1,115 @@
+"""
+句子分割器。
+
+在句子边界处将文档分割为块。
+配置：chunk_size=512 词元，chunk_overlap=20 词元。
+"""
+
+import logging
+import re
+
+logger = logging.getLogger(__name__)
+
+
+def split_text(
+    text: str,
+    chunk_size: int = 512,
+    chunk_overlap: int = 20,
+    separator: str = " ",
+) -> list[str]:
+    """
+    在句子边界处将文本分割为块。
+
+    Args:
+        text: 要分割的输入文本。
+        chunk_size: 块的最大词元数（以词数近似）。
+        chunk_overlap: 块之间重叠的词元数。
+        separator: 词分隔符（默认：空格）。
+
+    Returns:
+        文本块列表。
+    """
+    # 按句子分割
+    sentences = _split_sentences(text)
+    if not sentences:
+        return []
+
+    chunks = []
+    current_chunk = []
+    current_size = 0
+
+    for sentence in sentences:
+        sentence_words = sentence.split()
+        sentence_size = len(sentence_words)
+
+        if current_size + sentence_size > chunk_size and current_chunk:
+            # 保存当前块
+            chunks.append(separator.join(current_chunk))
+
+            # 以重叠方式开始新块
+            overlap_words = _get_overlap_words(current_chunk, chunk_overlap, separator)
+            current_chunk = overlap_words.split() if overlap_words else []
+            current_size = len(current_chunk)
+
+        current_chunk.extend(sentence_words)
+        current_size += sentence_size
+
+    # 添加最后一个块
+    if current_chunk:
+        chunks.append(separator.join(current_chunk))
+
+    logger.info(f"Split text into {len(chunks)} chunks (chunk_size={chunk_size}, overlap={chunk_overlap})")
+    return chunks
+
+
+def split_documents(
+    documents: list[dict],
+    chunk_size: int = 512,
+    chunk_overlap: int = 20,
+) -> list[dict]:
+    """
+    将文档列表分割为块。
+
+    Args:
+        documents: 包含 'content' 和 'metadata' 的文档字典列表。
+        chunk_size: 块的最大词元数。
+        chunk_overlap: 块之间的重叠词元数。
+
+    Returns:
+        包含 'content'、'metadata' 和 'chunk_index' 的块字典列表。
+    """
+    all_chunks = []
+
+    for doc_idx, doc in enumerate(documents):
+        content = doc["content"]
+        metadata = doc.get("metadata", {})
+        chunks = split_text(content, chunk_size, chunk_overlap)
+
+        for chunk_idx, chunk in enumerate(chunks):
+            all_chunks.append({
+                "content": chunk,
+                "metadata": {
+                    **metadata,
+                    "doc_index": doc_idx,
+                    "chunk_index": chunk_idx,
+                    "total_chunks": len(chunks),
+                },
+            })
+
+    logger.info(f"Split {len(documents)} documents into {len(all_chunks)} chunks")
+    return all_chunks
+
+
+def _split_sentences(text: str) -> list[str]:
+    """将文本分割为句子。"""
+    # 处理常见的句子结尾
+    sentences = re.split(r'(?<=[.!?。！？])\s+', text.strip())
+    return [s.strip() for s in sentences if s.strip()]
+
+
+def _get_overlap_words(chunk_words: list[str], overlap_size: int, separator: str) -> str:
+    """获取最后 N 个词用于重叠。"""
+    if overlap_size <= 0:
+        return ""
+    overlap = chunk_words[-overlap_size:] if len(chunk_words) > overlap_size else chunk_words
+    return separator.join(overlap)
