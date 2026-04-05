@@ -269,10 +269,12 @@ def main():
         print("\n服务未就绪，请先启动 Inference Worker 和 RAG Server")
         sys.exit(1)
 
-    test_inference_endpoints()
-    test_index()
-    test_query()
-    test_cleanup()
+    try:
+        test_inference_endpoints()
+        test_index()
+        test_query()
+    finally:
+        test_cleanup()
 
     print("\n" + "=" * 60)
     print(f"测试结果: {passed} passed, {failed} failed")

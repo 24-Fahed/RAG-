@@ -306,16 +306,34 @@ def test_queries(queries_ds, qrels_ds, corpus_ds):
 # ======== 步骤 5: 清理 ========
 
 def test_cleanup():
-    """清理测试数据。"""
+    """清理测试数据：Milvus collection + 本地临时文件。"""
     print("\n[步骤5] 清理测试数据")
 
-    # 清理 Milvus collection（通过本地连接，如果可以的话）
-    # staging 环境下 Milvus 在公网服务器上，这里只能通过 Server API 间接操作
-    # 暂不清理，保留数据供观察
-    print("  测试数据保留在服务器上，如需清理请手动执行：")
-    print(f"    from pymilvus import MilvusClient")
-    print(f"    client = MilvusClient(uri='http://<server_ip>:19530')")
-    print(f"    client.drop_collection('{COLLECTION}')")
+    # 清理 Milvus collection
+    try:
+        from pymilvus import MilvusClient
+        # 从 server url 推导 milvus 地址（替换端口 8000 -> 19530）
+        from urllib.parse import urlparse
+        parsed = urlparse(RAG_SERVER)
+        milvus_uri = f"http://{parsed.hostname}:19530"
+        client = MilvusClient(uri=milvus_uri, timeout=5)
+        if client.has_collection(COLLECTION):
+            client.drop_collection(COLLECTION)
+            check(f"Milvus collection '{COLLECTION}' 已清理", True)
+        else:
+            check(f"Milvus collection '{COLLECTION}' 已清理", True, "不存在，无需清理")
+    except Exception as e:
+        check(f"Milvus collection '{COLLECTION}' 清理", False, str(e))
+
+    # 清理本地临时文件
+    output_dir = os.path.join(PROJECT_ROOT, "tests", "staging_test_data")
+    if os.path.exists(output_dir):
+        for fname in os.listdir(output_dir):
+            os.remove(os.path.join(output_dir, fname))
+        os.rmdir(output_dir)
+        check("本地临时文件已清理", True)
+    else:
+        check("本地临时文件已清理", True, "不存在")
 
 
 # ======== 主流程 ========
@@ -331,27 +349,28 @@ def main():
     RAG_SERVER = get_server_url()
     print(f"RAG Server: {RAG_SERVER}")
 
-    # 步骤 1: 健康检查
-    if not test_health():
-        print("\n服务未就绪，请检查各服务状态")
-        sys.exit(1)
+    try:
+        # 步骤 1: 健康检查
+        if not test_health():
+            print("\n服务未就绪，请检查各服务状态")
+            sys.exit(1)
 
-    # 步骤 2: 拉取数据
-    corpus_ds, queries_ds, qrels_ds = download_scifact()
-    if corpus_ds is None:
-        print("\n数据拉取失败")
-        sys.exit(1)
+        # 步骤 2: 拉取数据
+        corpus_ds, queries_ds, qrels_ds = download_scifact()
+        if corpus_ds is None:
+            print("\n数据拉取失败")
+            sys.exit(1)
 
-    # 步骤 3: 索引
-    if not test_index(corpus_ds):
-        print("\n索引失败")
-        sys.exit(1)
+        # 步骤 3: 索引
+        if not test_index(corpus_ds):
+            print("\n索引失败")
+            sys.exit(1)
 
-    # 步骤 4: 查询
-    test_queries(queries_ds, qrels_ds, corpus_ds)
-
-    # 步骤 5: 清理
-    test_cleanup()
+        # 步骤 4: 查询
+        test_queries(queries_ds, qrels_ds, corpus_ds)
+    finally:
+        # 步骤 5: 无论成功或失败，自动清理测试数据
+        test_cleanup()
 
     # 汇总
     print("\n" + "=" * 60)

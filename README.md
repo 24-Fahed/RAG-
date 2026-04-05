@@ -74,6 +74,14 @@ python -m client.client --mode local query "What is RAG?"
 
 完整的三阶段部署说明请参见 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md)。
 
+## 临时补丁
+
+| 补丁 | 文件 | 说明 |
+|------|------|------|
+| torch.load 安全检查绕过 | `inference/main.py` | transformers 要求 torch>=2.6，monkey-patch 跳过检查 |
+| HuggingFace 镜像 | `inference/main.py` | GPU 服务器无法访问 huggingface.co，走 hf-mirror.com |
+| 跳过分类步骤 | `server/services/pipeline.py` | 分类器未微调，临时强制所有查询走检索 |
+
 ## 非侵入式设计
 
 `rag_deploy/` 项目**不修改** `rag_langgraph/` 中的任何代码，而是通过导入和封装现有模块实现：
