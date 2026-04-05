@@ -4,49 +4,19 @@ import yaml
 from pathlib import Path
 
 _CONFIG_DIR = Path(__file__).parent / "config"
-_config_cache: dict | None = None
-_current_mode: str = "local"
 
+# 以下变量在 load_config() 调用后才有值
+MILVUS_HOST = ""
+MILVUS_PORT = 0
+INFERENCE_URL = ""
+BM25_INDEX_DIR = ""
+COLLECTION_NAME = ""
+EMBEDDING_DIM = 0
+HOST = ""
+PORT = 0
+CHUNK_SIZE = 512
+CHUNK_OVERLAP = 20
 
-def load_config(mode: str):
-    """加载指定模式的配置文件。必须在导入其他模块之前调用。"""
-    global _config_cache, _current_mode
-    _current_mode = mode
-    _config_cache = None
-
-
-def _load() -> dict:
-    global _config_cache
-    if _config_cache is None:
-        path = _CONFIG_DIR / f"{_current_mode}.yaml"
-        with open(path, "r", encoding="utf-8") as f:
-            _config_cache = yaml.safe_load(f)
-    return _config_cache
-
-
-# --- 延迟加载配置 ---
-_cfg = _load()
-server_cfg = _cfg.get("server", {})
-
-# --- Milvus 配置 ---
-MILVUS_HOST = server_cfg.get("milvus_host", "localhost")
-MILVUS_PORT = int(server_cfg.get("milvus_port", 19530))
-
-# --- 推理 Worker 配置 ---
-INFERENCE_URL = server_cfg.get("inference_url", "http://localhost:8001")
-
-# --- BM25 配置 ---
-BM25_INDEX_DIR = server_cfg.get("bm25_index_dir", "./bm25_data")
-
-# --- Collection 配置 ---
-COLLECTION_NAME = server_cfg.get("collection_name", "rag_collection")
-EMBEDDING_DIM = int(server_cfg.get("embedding_dim", 768))
-
-# --- 服务端配置 ---
-HOST = server_cfg.get("host", "0.0.0.0")
-PORT = int(server_cfg.get("port", 8000))
-
-# --- 流水线默认参数 ---
 DEFAULT_SEARCH_METHOD = "hyde_with_hybrid"
 DEFAULT_RERANK_MODEL = "monot5"
 DEFAULT_TOP_K = 10
@@ -55,6 +25,22 @@ DEFAULT_REPACK_METHOD = "sides"
 DEFAULT_HYBRID_ALPHA = 0.3
 DEFAULT_SEARCH_K = 100
 
-# --- 索引配置 ---
-CHUNK_SIZE = 512
-CHUNK_OVERLAP = 20
+
+def load_config(mode: str):
+    """加载指定模式的配置文件。必须在导入其他模块之前调用。"""
+    global MILVUS_HOST, MILVUS_PORT, INFERENCE_URL, BM25_INDEX_DIR
+    global COLLECTION_NAME, EMBEDDING_DIM, HOST, PORT
+
+    path = _CONFIG_DIR / f"{mode}.yaml"
+    with open(path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f)
+
+    srv = cfg.get("server", {})
+    MILVUS_HOST = srv.get("milvus_host", "localhost")
+    MILVUS_PORT = int(srv.get("milvus_port", 19530))
+    INFERENCE_URL = srv.get("inference_url", "http://localhost:8001")
+    BM25_INDEX_DIR = srv.get("bm25_index_dir", "./bm25_data")
+    COLLECTION_NAME = srv.get("collection_name", "rag_collection")
+    EMBEDDING_DIM = int(srv.get("embedding_dim", 768))
+    HOST = srv.get("host", "0.0.0.0")
+    PORT = int(srv.get("port", 8000))
