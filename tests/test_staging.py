@@ -1,380 +1,381 @@
-"""Staging 全链路测试脚本。
+"""Staging end-to-end smoke test for the deployed RAG service.
 
-使用 BeIR/scifact 数据集进行完整的端到端测试。
-包含数据拉取、索引、查询、结果验证全流程。
+This script focuses on operational confidence instead of strict retrieval
+benchmarking:
 
-前置条件：
-  1. GPU 服务器：Inference Worker 已启动（python -m inference.main --mode staging）
-  2. 公网服务器：Milvus + SSH 隧道 + RAG Server 已启动
-  3. 本地环境：pip install datasets httpx pyyaml
+1. Check the public server health endpoint.
+2. Download a small SciFact subset from Hugging Face.
+3. Upload and index a capped document set through `/api/index`.
+4. Run a capped query set through `/api/query`.
+5. Print actionable diagnostics when the server returns non-200 responses.
+6. Clean up the temporary Milvus collection and local temp files.
 
-用法：
-  python tests/test_staging.py [--server-url http://<server_ip>:8000]
-
-默认使用 client/config/staging.yaml 中的 server_url。
+Usage:
+    python tests/test_staging.py
+    python tests/test_staging.py --server-url http://<server>:8000
+    python tests/test_staging.py --server-url http://<server>:8000 --max-docs 500 --max-queries 5
 """
 
-import sys
-import os
-import json
-import time
+from __future__ import annotations
+
 import argparse
+import os
+import shutil
+import sys
+import time
+from pathlib import Path
+from urllib.parse import urlparse
 
-# 将项目根目录加入路径
-PROJECT_ROOT = os.path.join(os.path.dirname(__file__), "..")
-sys.path.insert(0, PROJECT_ROOT)
+import httpx
 
-RAG_SERVER = None  # 从参数或配置读取
-COLLECTION = "scifact_test"
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+DEFAULT_COLLECTION = "scifact_test"
+TEMP_DIR = PROJECT_ROOT / "tests" / "staging_test_data"
+
+HEALTH_TIMEOUT = 20
+INDEX_TIMEOUT = 1200
+QUERY_TIMEOUT = 240
 
 passed = 0
 failed = 0
 
 
-def check(name: str, condition: bool, detail: str = ""):
+def check(name: str, condition: bool, detail: str = "") -> None:
     global passed, failed
     if condition:
         passed += 1
         print(f"  PASS  {name}")
-    else:
-        failed += 1
-        msg = f"  FAIL  {name}"
-        if detail:
-            msg += f" -- {detail}"
-        print(msg)
+        return
+
+    failed += 1
+    msg = f"  FAIL  {name}"
+    if detail:
+        msg += f" -- {detail}"
+    print(msg)
 
 
-def get_server_url():
-    """从参数或配置文件获取 server URL。"""
-    parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--server-url", default=None)
-    args, _ = parser.parse_known_args()
-    if args.server_url:
-        return args.server_url
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--server-url", default=None, help="Override RAG server URL")
+    parser.add_argument("--collection", default=DEFAULT_COLLECTION, help="Milvus collection for this test run")
+    parser.add_argument("--max-docs", type=int, default=1000, help="Maximum number of corpus docs to upload")
+    parser.add_argument("--max-queries", type=int, default=10, help="Maximum number of SciFact queries to test")
+    return parser.parse_args()
+
+
+def get_server_url(cli_url: str | None) -> str:
+    if cli_url:
+        return cli_url.rstrip("/")
+
     try:
         from client.config import load_config
+
         load_config("staging")
         from client.config import RAG_SERVER_URL
-        return RAG_SERVER_URL
+
+        return RAG_SERVER_URL.rstrip("/")
     except Exception:
         return "http://127.0.0.1:8001"
 
 
-# ======== 步骤 1: 健康检查 ========
+def safe_preview(text: str, limit: int = 300) -> str:
+    text = text.replace("\n", "\\n")
+    return text[:limit]
 
-def test_health():
-    """验证所有服务在线。"""
-    print("\n[步骤1] 服务健康检查")
-    import httpx
 
+def http_error_detail(resp: httpx.Response) -> str:
+    body = safe_preview(resp.text)
+    return f"HTTP {resp.status_code} | body={body}"
+
+
+def request_json(
+    client: httpx.Client,
+    method: str,
+    path: str,
+    *,
+    timeout: float,
+    expect_status: int = 200,
+    **kwargs,
+):
+    start = time.time()
+    resp = client.request(method, path, timeout=timeout, **kwargs)
+    elapsed = time.time() - start
+    if resp.status_code != expect_status:
+        raise RuntimeError(f"{method} {path} failed after {elapsed:.1f}s: {http_error_detail(resp)}")
+    return resp.json(), elapsed
+
+
+def test_health(client: httpx.Client) -> bool:
+    print("\n[Step 1] Server health")
     try:
-        resp = httpx.get(f"{RAG_SERVER}/health", timeout=10)
-        data = resp.json()
-        check("RAG Server 在线", data.get("status") == "ok")
-    except Exception as e:
-        check("RAG Server 在线", False, str(e))
+        data, elapsed = request_json(client, "GET", "/health", timeout=HEALTH_TIMEOUT)
+        check("RAG Server online", data.get("status") == "ok", f"elapsed={elapsed:.1f}s")
+        return data.get("status") == "ok"
+    except Exception as exc:
+        check("RAG Server online", False, str(exc))
         return False
 
-    # 通过 server 间接验证 inference worker
-    try:
-        resp = httpx.post(f"{RAG_SERVER}/api/query",
-                          json={"query": "test", "top_k": 1},
-                          timeout=30)
-        # 即使返回错误也算在线，只是验证通路
-        check("Server -> Inference Worker 通路正常", resp.status_code in (200, 500))
-    except Exception as e:
-        check("Server -> Inference Worker 通路正常", False, str(e))
-        return False
-
-    return True
-
-
-# ======== 步骤 2: 拉取 SciFact 数据集 ========
 
 def download_scifact():
-    """从 HuggingFace 拉取 BeIR/scifact 数据集。"""
-    print("\n[步骤2] 拉取 SciFact 数据集")
-
+    print("\n[Step 2] Download SciFact")
     try:
         from datasets import load_dataset
     except ImportError:
-        check("datasets 库已安装", False, "pip install datasets")
+        check("datasets installed", False, "pip install datasets")
         return None, None, None
 
-    # 拉取 corpus
-    print("  正在下载 corpus...")
     try:
-        corpus_ds = load_dataset("BeIR/scifact", "corpus", split="corpus",
-                                 trust_remote_code=True)
-        check("corpus 下载成功", True, f"{len(corpus_ds)} 篇文档")
-    except Exception as e:
-        check("corpus 下载成功", False, str(e))
+        corpus_ds = load_dataset("BeIR/scifact", "corpus", split="corpus", trust_remote_code=True)
+        check("Downloaded corpus", True, f"{len(corpus_ds)} docs")
+    except Exception as exc:
+        check("Downloaded corpus", False, str(exc))
         return None, None, None
 
-    # 拉取 queries
-    print("  正在下载 queries...")
     try:
-        queries_ds = load_dataset("BeIR/scifact", "queries", split="queries",
-                                  trust_remote_code=True)
-        check("queries 下载成功", True, f"{len(queries_ds)} 条查询")
-    except Exception as e:
-        check("queries 下载成功", False, str(e))
+        queries_ds = load_dataset("BeIR/scifact", "queries", split="queries", trust_remote_code=True)
+        check("Downloaded queries", True, f"{len(queries_ds)} queries")
+    except Exception as exc:
+        check("Downloaded queries", False, str(exc))
         return corpus_ds, None, None
 
-    # 拉取 qrels（相关性标注）
-    print("  正在下载 qrels...")
     try:
-        qrels_ds = load_dataset("BeIR/scifact-qrels", split="test",
-                                trust_remote_code=True)
-        check("qrels 下载成功", True, f"{len(qrels_ds)} 条标注")
-    except Exception as e:
-        check("qrels 下载成功", False, str(e))
+        qrels_ds = load_dataset("BeIR/scifact-qrels", split="test", trust_remote_code=True)
+        check("Downloaded qrels", True, f"{len(qrels_ds)} labels")
+    except Exception as exc:
+        check("Downloaded qrels", False, str(exc))
         return corpus_ds, queries_ds, None
 
     return corpus_ds, queries_ds, qrels_ds
 
 
-# ======== 步骤 3: 索引测试 ========
+def build_temp_corpus(corpus_ds, max_docs: int) -> int:
+    if TEMP_DIR.exists():
+        shutil.rmtree(TEMP_DIR)
+    TEMP_DIR.mkdir(parents=True, exist_ok=True)
 
-def test_index(corpus_ds):
-    """将 corpus 索引到 Milvus + BM25。"""
-    print("\n[步骤3] 索引 SciFact corpus")
-    import httpx
-
-    # 将 corpus 转换为临时 txt 文件
-    output_dir = os.path.join(PROJECT_ROOT, "tests", "staging_test_data")
-    os.makedirs(output_dir, exist_ok=True)
-
-    print(f"  将 corpus 转为 txt 文件 -> {output_dir}")
     count = 0
     for item in corpus_ds:
         doc_id = item.get("_id", count)
         title = item.get("title", "")
         text = item.get("text", "")
         content = f"{title}\n\n{text}" if title else text
-        filepath = os.path.join(output_dir, f"doc_{doc_id}.txt")
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(content)
+        filepath = TEMP_DIR / f"doc_{doc_id}.txt"
+        filepath.write_text(content, encoding="utf-8")
         count += 1
-        if count >= 1000:  # 取前 1000 篇做测试
+        if count >= max_docs:
             break
 
-    check(f"生成 {count} 个 txt 文件", True)
+    check("Prepared temporary corpus files", count > 0, f"{count} files")
+    return count
 
-    # 通过 Server API 索引
-    print(f"  上传索引到 {COLLECTION}...")
-    files = []
-    for fname in sorted(os.listdir(output_dir)):
-        fpath = os.path.join(output_dir, fname)
-        if os.path.isfile(fpath) and fname.endswith(".txt"):
-            files.append(open(fpath, "rb"))
+
+def test_index(client: httpx.Client, corpus_ds, collection: str, max_docs: int) -> bool:
+    print("\n[Step 3] Index SciFact subset")
+    file_handles = []
 
     try:
-        start_time = time.time()
-        resp = httpx.post(
-            f"{RAG_SERVER}/api/index",
-            files=[("files", f) for f in files],
-            data={"collection": COLLECTION},
-            timeout=600,
-        )
-        elapsed = time.time() - start_time
+        file_count = build_temp_corpus(corpus_ds, max_docs)
+        if file_count == 0:
+            return False
 
-        for f in files:
-            f.close()
+        for fname in sorted(os.listdir(TEMP_DIR)):
+            fpath = TEMP_DIR / fname
+            if fpath.is_file() and fpath.suffix == ".txt":
+                file_handles.append(open(fpath, "rb"))
+
+        start = time.time()
+        resp = client.post(
+            "/api/index",
+            files=[("files", fh) for fh in file_handles],
+            data={"collection": collection},
+            timeout=INDEX_TIMEOUT,
+        )
+        elapsed = time.time() - start
 
         if resp.status_code != 200:
-            check("索引接口返回成功", False,
-                  f"HTTP {resp.status_code}: {resp.text[:300]}")
+            check("Index request succeeded", False, http_error_detail(resp))
             return False
 
         data = resp.json()
-        check("索引接口返回 ok", data.get("status") == "ok")
-        check("文档数量 > 0", data.get("document_count", 0) > 0)
-        print(f"    索引完成: {data.get('document_count')} 个文档块, 耗时 {elapsed:.1f}s")
-    except Exception as e:
-        for f in files:
-            f.close()
-        check("索引接口返回成功", False, str(e))
+        check("Index response status ok", data.get("status") == "ok", f"elapsed={elapsed:.1f}s")
+        check("Indexed documents > 0", data.get("document_count", 0) > 0, str(data.get("document_count")))
+        print(f"    Indexed {data.get('document_count', 0)} chunks in {elapsed:.1f}s")
+        return data.get("status") == "ok"
+    except Exception as exc:
+        check("Index request succeeded", False, str(exc))
         return False
-
-    # 清理临时文件
-    for fname in os.listdir(output_dir):
-        os.remove(os.path.join(output_dir, fname))
-    os.rmdir(output_dir)
-
-    return True
+    finally:
+        for fh in file_handles:
+            fh.close()
 
 
-# ======== 步骤 4: 查询测试 ========
+def build_relevance_lookup(qrels_ds, corpus_ds):
+    qrel_map: dict[str, set[str]] = {}
+    title_map: dict[str, str] = {}
 
-def test_queries(queries_ds, qrels_ds, corpus_ds):
-    """执行查询并验证检索质量。"""
-    print("\n[步骤4] 查询测试")
-    import httpx
-
-    # 构建 qrel 查找表: query_id -> [doc_id, ...]
-    qrel_map = {}
     if qrels_ds is not None:
         for item in qrels_ds:
             qid = str(item.get("query-id", ""))
             did = str(item.get("corpus-id", ""))
-            if qid not in qrel_map:
-                qrel_map[qid] = []
-            qrel_map[qid].append(did)
+            qrel_map.setdefault(qid, set()).add(did)
 
-    # 构建 corpus 查找表: doc_id -> title
-    corpus_map = {}
     if corpus_ds is not None:
         for item in corpus_ds:
             doc_id = str(item.get("_id", ""))
-            corpus_map[doc_id] = item.get("title", "")
+            title_map[doc_id] = item.get("title", "") or ""
 
-    # 取前 10 条查询测试
+    return qrel_map, title_map
+
+
+def query_payload(query: str) -> dict:
+    return {
+        "query": query,
+        "top_k": 10,
+    }
+
+
+def test_queries(client: httpx.Client, queries_ds, qrels_ds, corpus_ds, max_queries: int) -> None:
+    print("\n[Step 4] Query smoke test")
+
     test_queries_list = []
     if queries_ds is not None:
         for item in queries_ds:
-            test_queries_list.append({
-                "id": str(item.get("_id", "")),
-                "text": item.get("text", ""),
-            })
+            test_queries_list.append(
+                {
+                    "id": str(item.get("_id", "")),
+                    "text": item.get("text", ""),
+                }
+            )
+    test_queries_list = test_queries_list[:max_queries]
+    check("Prepared test queries", len(test_queries_list) > 0, str(len(test_queries_list)))
+    if not test_queries_list:
+        return
 
-    test_queries_list = test_queries_list[:10]
-    check(f"准备 {len(test_queries_list)} 条测试查询", len(test_queries_list) > 0)
+    qrel_map, title_map = build_relevance_lookup(qrels_ds, corpus_ds)
 
-    total_retrieved = 0
-    total_hit = 0
-    total_answered = 0
+    answered = 0
+    query_success = 0
+    relevant_hit = 0
+    query_with_qrels = 0
 
-    for q in test_queries_list:
-        qid = q["id"]
-        qtext = q["text"]
-        print(f"\n  Query [{qid}]: {qtext}")
+    for item in test_queries_list:
+        qid = item["id"]
+        qtext = item["text"]
+        print(f"\n  Query [{qid}] {qtext}")
 
         try:
-            resp = httpx.post(f"{RAG_SERVER}/api/query",
-                              json={"query": qtext, "top_k": 10},
-                              timeout=120)
+            start = time.time()
+            resp = client.post("/api/query", json=query_payload(qtext), timeout=QUERY_TIMEOUT)
+            elapsed = time.time() - start
+
             if resp.status_code != 200:
-                check(f"查询返回成功", False,
-                      f"HTTP {resp.status_code}: {resp.text[:200]}")
+                check(f"[{qid}] query request", False, http_error_detail(resp))
                 continue
 
             data = resp.json()
             answer = data.get("answer", "")
             retrieved = data.get("retrieved_documents", [])
             reranked = data.get("reranked_documents", [])
+            hyde_document = data.get("hyde_document")
             label = data.get("classification_label")
 
-            print(f"    Label: {label}")
-            print(f"    Retrieved: {len(retrieved)} docs")
-            print(f"    Reranked: {len(reranked)} docs")
-            print(f"    Answer: {answer[:200]}")
+            print(f"    elapsed={elapsed:.1f}s label={label} retrieved={len(retrieved)} reranked={len(reranked)}")
+            if hyde_document:
+                print(f"    hyde={safe_preview(hyde_document, 120)}")
+            print(f"    answer={safe_preview(answer, 200)}")
 
-            # 基本检查
-            check(f"[{qid}] 返回答案", bool(answer))
-            check(f"[{qid}] 检索到文档", len(retrieved) > 0,
-                  f"数量: {len(retrieved)}")
+            check(f"[{qid}] answer returned", bool(answer))
+            check(f"[{qid}] retrieved documents", len(retrieved) > 0, str(len(retrieved)))
+            check(f"[{qid}] reranked documents", len(reranked) > 0, str(len(reranked)))
 
-            if answer and not answer.startswith("[MOCK]"):
-                total_answered += 1
+            if answer:
+                answered += 1
+            query_success += 1
 
-            # 如果有 qrels，验证检索质量
             if qid in qrel_map:
-                relevant_ids = set(qrel_map[qid])
-                retrieved_contents = " ".join(
-                    [d.get("content", "")[:100] for d in retrieved]
-                )
-                hit = any(rid in retrieved_contents for rid in relevant_ids)
+                query_with_qrels += 1
+                relevant_titles = [title_map.get(doc_id, "") for doc_id in qrel_map[qid]]
+                retrieved_text = "\n".join(doc.get("content", "") for doc in retrieved)
+                hit = any(title and title in retrieved_text for title in relevant_titles)
+                check(f"[{qid}] retrieved relevant title", hit)
                 if hit:
-                    total_hit += 1
-                    print(f"    Hit: 检索到相关文档")
+                    relevant_hit += 1
+        except Exception as exc:
+            check(f"[{qid}] query request", False, str(exc))
 
-            total_retrieved += len(retrieved)
-
-        except Exception as e:
-            check(f"查询 [{qid}]", False, str(e))
-
-    # 汇总统计
-    print(f"\n  --- 查询统计 ---")
-    print(f"  总查询数: {len(test_queries_list)}")
-    print(f"  平均检索文档数: {total_retrieved / max(1, len(test_queries_list)):.1f}")
-    print(f"  真实答案数: {total_answered}/{len(test_queries_list)}")
-    if qrel_map:
-        print(f"  命中相关文档: {total_hit}/{len([q for q in test_queries_list if q['id'] in qrel_map])}")
+    print("\n  --- Query summary ---")
+    print(f"  Successful queries: {query_success}/{len(test_queries_list)}")
+    print(f"  Queries with answers: {answered}/{len(test_queries_list)}")
+    if query_with_qrels:
+        print(f"  Queries hitting known relevant title: {relevant_hit}/{query_with_qrels}")
 
 
-# ======== 步骤 5: 清理 ========
+def cleanup_local_temp() -> None:
+    if TEMP_DIR.exists():
+        shutil.rmtree(TEMP_DIR)
+        check("Local temporary files cleaned", True)
+    else:
+        check("Local temporary files cleaned", True, "nothing to remove")
 
-def test_cleanup():
-    """清理测试数据：Milvus collection + 本地临时文件。"""
-    print("\n[步骤5] 清理测试数据")
 
-    # 清理 Milvus collection
+def test_cleanup(server_url: str, collection: str) -> None:
+    print("\n[Step 5] Cleanup")
     try:
         from pymilvus import MilvusClient
-        # 从 server url 推导 milvus 地址（替换端口 8000 -> 19530）
-        from urllib.parse import urlparse
-        parsed = urlparse(RAG_SERVER)
+
+        parsed = urlparse(server_url)
         milvus_uri = f"http://{parsed.hostname}:19530"
         client = MilvusClient(uri=milvus_uri, timeout=5)
-        if client.has_collection(COLLECTION):
-            client.drop_collection(COLLECTION)
-            check(f"Milvus collection '{COLLECTION}' 已清理", True)
+        if client.has_collection(collection):
+            client.drop_collection(collection)
+            check(f"Milvus collection '{collection}' cleaned", True)
         else:
-            check(f"Milvus collection '{COLLECTION}' 已清理", True, "不存在，无需清理")
-    except Exception as e:
-        check(f"Milvus collection '{COLLECTION}' 清理", False, str(e))
+            check(f"Milvus collection '{collection}' cleaned", True, "nothing to remove")
+    except Exception as exc:
+        check(f"Milvus collection '{collection}' cleaned", False, str(exc))
 
-    # 清理本地临时文件
-    output_dir = os.path.join(PROJECT_ROOT, "tests", "staging_test_data")
-    if os.path.exists(output_dir):
-        for fname in os.listdir(output_dir):
-            os.remove(os.path.join(output_dir, fname))
-        os.rmdir(output_dir)
-        check("本地临时文件已清理", True)
-    else:
-        check("本地临时文件已清理", True, "不存在")
+    cleanup_local_temp()
 
 
-# ======== 主流程 ========
-
-def main():
-    global RAG_SERVER
+def main() -> None:
+    args = parse_args()
+    server_url = get_server_url(args.server_url)
 
     print("=" * 60)
-    print("RAG Staging 全链路测试")
-    print("数据集: BeIR/scifact")
+    print("RAG staging smoke test")
+    print("Dataset: BeIR/scifact")
+    print(f"Server: {server_url}")
+    print(f"Collection: {args.collection}")
+    print(f"Max docs: {args.max_docs}")
+    print(f"Max queries: {args.max_queries}")
     print("=" * 60)
 
-    RAG_SERVER = get_server_url()
-    print(f"RAG Server: {RAG_SERVER}")
+    client = httpx.Client(base_url=server_url, timeout=QUERY_TIMEOUT)
 
     try:
-        # 步骤 1: 健康检查
-        if not test_health():
-            print("\n服务未就绪，请检查各服务状态")
+        if not test_health(client):
+            print("\nServer is not ready.")
             sys.exit(1)
 
-        # 步骤 2: 拉取数据
         corpus_ds, queries_ds, qrels_ds = download_scifact()
         if corpus_ds is None:
-            print("\n数据拉取失败")
+            print("\nFailed to download SciFact.")
             sys.exit(1)
 
-        # 步骤 3: 索引
-        if not test_index(corpus_ds):
-            print("\n索引失败")
+        if not test_index(client, corpus_ds, args.collection, args.max_docs):
+            print("\nIndexing failed.")
             sys.exit(1)
 
-        # 步骤 4: 查询
-        test_queries(queries_ds, qrels_ds, corpus_ds)
+        test_queries(client, queries_ds, qrels_ds, corpus_ds, args.max_queries)
     finally:
-        # 步骤 5: 无论成功或失败，自动清理测试数据
-        test_cleanup()
+        client.close()
+        test_cleanup(server_url, args.collection)
 
-    # 汇总
     print("\n" + "=" * 60)
-    print(f"测试结果: {passed} passed, {failed} failed")
+    print(f"Test result: {passed} passed, {failed} failed")
     print("=" * 60)
 
     if failed > 0:
