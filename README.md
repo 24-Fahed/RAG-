@@ -78,7 +78,7 @@ python -m client.client --mode local query "What is RAG?"
 
 | 补丁 | 文件 | 说明 |
 |------|------|------|
-| torch.load 安全检查绕过 | `inference/main.py` | transformers 要求 torch>=2.6，monkey-patch 跳过检查 |
+| transformers 版本固定 | `inference/requirements.txt` | 固定到 `transformers==4.48.2`，与 `torch 2.5.1` 兼容，避免 5.x 的 torch>=2.6 限制 |
 | HuggingFace 镜像 | `inference/main.py` | GPU 服务器无法访问 huggingface.co，走 hf-mirror.com |
 | 跳过分类步骤 | `server/services/pipeline.py` | 分类器未微调，临时强制所有查询走检索 |
 

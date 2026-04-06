@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sys
 import threading
 import time
 
@@ -13,14 +12,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
-
-# Temporary bypass for the transformers torch.load safety gate.
-import transformers.utils.import_utils
-
-transformers.utils.import_utils.check_torch_load_is_safe = lambda: None
-for _name, _mod in list(sys.modules.items()):
-    if _name.startswith("transformers") and hasattr(_mod, "check_torch_load_is_safe"):
-        _mod.check_torch_load_is_safe = lambda: None
 
 _parser = argparse.ArgumentParser(add_help=False)
 _parser.add_argument(

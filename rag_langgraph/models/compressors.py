@@ -50,11 +50,7 @@ class RecompExtractiveCompressor(BaseCompressor):
     def __init__(self, model_name: str = "fangyuan/nq_extractive_compressor"):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        # self.model = AutoModel.from_pretrained(model_name)
-        # Use `use_safetensors=False` explicitly to avoid transformers spawning
-        # a background safetensors auto-conversion thread during preload. That
-        # extra lookup may time out on mirrored / restricted networks.
-        self.model = AutoModel.from_pretrained(model_name, use_safetensors=False)
+        self.model = AutoModel.from_pretrained(model_name)
         self.model.to(self.device)
         self.model.eval()
         logger.info(f"Loaded Recomp extractive compressor: {model_name}")
@@ -110,13 +106,7 @@ class RecompAbstractiveCompressor(BaseCompressor):
     def __init__(self, model_name: str = "fangyuan/nq_abstractive_compressor"):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.tokenizer = T5Tokenizer.from_pretrained(model_name, legacy=False)
-        # self.model = T5ForConditionalGeneration.from_pretrained(model_name)
-        # Use `use_safetensors=False` explicitly to avoid transformers launching
-        # background safetensors auto-conversion requests on model load.
-        self.model = T5ForConditionalGeneration.from_pretrained(
-            model_name,
-            use_safetensors=False,
-        )
+        self.model = T5ForConditionalGeneration.from_pretrained(model_name)
         self.model.to(self.device)
         self.model.eval()
         logger.info(f"Loaded Recomp abstractive compressor: {model_name}")
