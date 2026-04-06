@@ -31,8 +31,9 @@ class RerankResponse(BaseModel):
 @router.post("/rerank", response_model=RerankResponse)
 def rerank(req: RerankRequest):
     reranker = get_reranker(model_name=req.model)
-    docs = [d.model_dump() for d in req.documents]
-    results = reranker.rerank(req.query, docs, top_k=req.top_k)
+    doc_texts = [d.content for d in req.documents]
+    results = reranker.rerank(req.query, doc_texts)
+    results = results[:req.top_k]
     return RerankResponse(
         documents=[Document(**d) for d in results]
     )
