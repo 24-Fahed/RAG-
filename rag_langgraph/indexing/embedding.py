@@ -25,7 +25,12 @@ class Embedder:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
 
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModel.from_pretrained(model_name)
+        # self.model = AutoModel.from_pretrained(model_name)
+        # Use `use_safetensors=False` explicitly to stop transformers from spawning
+        # a background safetensors auto-conversion thread on model load. On mirrored
+        # / restricted networks this extra conversion lookup may time out even when
+        # the normal .bin checkpoint path is usable.
+        self.model = AutoModel.from_pretrained(model_name, use_safetensors=False)
         self.model.to(self.device)
         self.model.eval()
         logger.info(f"Loaded embedding model: {model_name} (dim={dim})")

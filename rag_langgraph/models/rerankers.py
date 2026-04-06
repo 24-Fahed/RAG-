@@ -49,7 +49,14 @@ class MonoT5Reranker(BaseReranker):
     def __init__(self, model_name: str = "castorini/monot5-base-msmarco-10k"):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.tokenizer = T5Tokenizer.from_pretrained(model_name, legacy=False)
-        self.model = T5ForConditionalGeneration.from_pretrained(model_name)
+        # self.model = T5ForConditionalGeneration.from_pretrained(model_name)
+        # Use `use_safetensors=False` explicitly to avoid transformers launching
+        # a background safetensors auto-conversion lookup. That lookup may follow
+        # mirror-unfriendly/Xet paths and fail even though the .bin weights load.
+        self.model = T5ForConditionalGeneration.from_pretrained(
+            model_name,
+            use_safetensors=False,
+        )
         self.model.to(self.device)
         self.model.eval()
         logger.info(f"Loaded MonoT5 reranker: {model_name}")
@@ -91,7 +98,13 @@ class BGEReranker(BaseReranker):
     def __init__(self, model_name: str = "BAAI/bge-reranker-v2-m3"):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        # self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        # Use `use_safetensors=False` explicitly to prevent background safetensors
+        # auto-conversion requests that can time out on mirrored networks.
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            use_safetensors=False,
+        )
         self.model.to(self.device)
         self.model.eval()
         logger.info(f"Loaded BGE reranker: {model_name}")
@@ -123,7 +136,13 @@ class TILDEReranker(BaseReranker):
     def __init__(self, model_name: str = "ielab/TILDEv2-TILDE200-exp"):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        # self.model = AutoModelForSequenceClassification.from_pretrained(model_name)
+        # Use `use_safetensors=False` explicitly to prevent background safetensors
+        # auto-conversion requests that can time out on mirrored networks.
+        self.model = AutoModelForSequenceClassification.from_pretrained(
+            model_name,
+            use_safetensors=False,
+        )
         self.model.to(self.device)
         self.model.eval()
         logger.info(f"Loaded TILDE reranker: {model_name}")
