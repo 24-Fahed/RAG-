@@ -10,6 +10,7 @@ router = APIRouter()
 
 class QueryRequest(BaseModel):
     query: str
+    collection: str | None = None
     search_method: str = "hyde_with_hybrid"
     rerank_model: str = "monot5"
     top_k: int = 10
@@ -38,6 +39,7 @@ class QueryResponse(BaseModel):
 def query(req: QueryRequest):
     result = run_query_pipeline(
         query=req.query,
+        collection_name=req.collection or None,
         search_method=req.search_method,
         rerank_model=req.rerank_model,
         top_k=req.top_k,

@@ -230,14 +230,22 @@ def build_relevance_lookup(qrels_ds, corpus_ds):
     return qrel_map, title_map
 
 
-def query_payload(query: str) -> dict:
+def query_payload(query: str, collection: str) -> dict:
     return {
         "query": query,
+        "collection": collection,
         "top_k": 10,
     }
 
 
-def test_queries(client: httpx.Client, queries_ds, qrels_ds, corpus_ds, max_queries: int) -> None:
+def test_queries(
+    client: httpx.Client,
+    queries_ds,
+    qrels_ds,
+    corpus_ds,
+    max_queries: int,
+    collection: str,
+) -> None:
     print("\n[Step 4] Query smoke test")
 
     test_queries_list = []
@@ -268,7 +276,11 @@ def test_queries(client: httpx.Client, queries_ds, qrels_ds, corpus_ds, max_quer
 
         try:
             start = time.time()
-            resp = client.post("/api/query", json=query_payload(qtext), timeout=QUERY_TIMEOUT)
+            resp = client.post(
+                "/api/query",
+                json=query_payload(qtext, collection),
+                timeout=QUERY_TIMEOUT,
+            )
             elapsed = time.time() - start
 
             if resp.status_code != 200:
@@ -369,7 +381,7 @@ def main() -> None:
             print("\nIndexing failed.")
             sys.exit(1)
 
-        test_queries(client, queries_ds, qrels_ds, corpus_ds, args.max_queries)
+        test_queries(client, queries_ds, qrels_ds, corpus_ds, args.max_queries, args.collection)
     finally:
         client.close()
         test_cleanup(server_url, args.collection)

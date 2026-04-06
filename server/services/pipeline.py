@@ -84,9 +84,10 @@ def run_query_pipeline(
     compression_ratio: float = 0.6,
     hybrid_alpha: float = 0.3,
     search_k: int = 100,
-    collection_name: str = COLLECTION_NAME,
+    collection_name: str | None = COLLECTION_NAME,
 ) -> dict:
     """运行完整的 RAG 查询流水线，分布在 RAG 服务端和 GPU 之间。"""
+    collection_name = collection_name or COLLECTION_NAME
 
     # --- 第 1 步：分类（暂时跳过，分类器未微调）---
     # label = inference_client.classify(query)
