@@ -1,14 +1,15 @@
-"""Staging end-to-end smoke test for the deployed RAG service.
+"""Staging smoke test for the retrieval-oriented RAG knowledge base.
 
-This script focuses on operational confidence instead of strict retrieval
-benchmarking:
+This script focuses on operational confidence for the knowledge-base chain
+instead of final-answer generation:
 
 1. Check the public server health endpoint.
 2. Download a small SciFact subset from Hugging Face.
 3. Upload and index a capped document set through `/api/index`.
 4. Run a capped query set through `/api/query`.
-5. Print actionable diagnostics when the server returns non-200 responses.
-6. Clean up the temporary Milvus collection and local temp files.
+5. Verify retrieval, reranking, repacking, and compression outputs.
+6. Print actionable diagnostics when the server returns non-200 responses.
+7. Clean up the temporary Milvus collection and local temp files.
 
 Usage:
     python tests/test_staging.py
@@ -244,6 +245,12 @@ def build_relevance_lookup(qrels_ds, corpus_ds):
     return qrel_map, title_map
 
 
+def contains_any_title(text: str, titles: list[str]) -> bool:
+    if not text:
+        return False
+    return any(title and title in text for title in titles)
+
+
 def query_payload(query: str, collection: str) -> dict:
     return {
         "query": query,
@@ -279,7 +286,9 @@ def test_queries(
     qrel_map, title_map = build_relevance_lookup(qrels_ds, corpus_ds)
 
     query_success = 0
-    relevant_hit = 0
+    retrieved_hit = 0
+    reranked_hit = 0
+    compressed_hit = 0
     query_with_qrels = 0
 
     for item in test_queries_list:
@@ -330,17 +339,31 @@ def test_queries(
                 query_with_qrels += 1
                 relevant_titles = [title_map.get(doc_id, "") for doc_id in qrel_map[qid]]
                 retrieved_text = "\n".join(doc.get("content", "") for doc in retrieved)
-                hit = any(title and title in retrieved_text for title in relevant_titles)
-                check(f"[{qid}] retrieved relevant title", hit)
-                if hit:
-                    relevant_hit += 1
+                reranked_text = "\n".join(doc.get("content", "") for doc in reranked)
+
+                retrieved_match = contains_any_title(retrieved_text, relevant_titles)
+                reranked_match = contains_any_title(reranked_text, relevant_titles)
+                compressed_match = contains_any_title(compressed_context, relevant_titles)
+
+                check(f"[{qid}] retrieved relevant title", retrieved_match)
+                check(f"[{qid}] reranked relevant title", reranked_match)
+                check(f"[{qid}] compressed context keeps relevant title", compressed_match)
+
+                if retrieved_match:
+                    retrieved_hit += 1
+                if reranked_match:
+                    reranked_hit += 1
+                if compressed_match:
+                    compressed_hit += 1
         except Exception as exc:
             check(f"[{qid}] query request", False, str(exc))
 
     print("\n  --- Query summary ---")
     print(f"  Successful queries: {query_success}/{len(test_queries_list)}")
     if query_with_qrels:
-        print(f"  Queries hitting known relevant title: {relevant_hit}/{query_with_qrels}")
+        print(f"  Queries hitting relevant title in retrieved_documents: {retrieved_hit}/{query_with_qrels}")
+        print(f"  Queries hitting relevant title in reranked_documents: {reranked_hit}/{query_with_qrels}")
+        print(f"  Queries keeping relevant title in compressed_context: {compressed_hit}/{query_with_qrels}")
 
 
 def cleanup_local_temp() -> None:
