@@ -61,7 +61,7 @@ class Retriever:
         """
         from rag_langgraph.models.generator import get_generator
         generator = get_generator()
-        hypothetical_doc = generator.generate(query, "")
+        hypothetical_doc = generator.generate_hyde(query)
         return hypothetical_doc
 
     def dense_search(self, query: str, top_k: int = 100) -> list[dict]:

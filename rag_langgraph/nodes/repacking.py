@@ -8,7 +8,12 @@
 - sides（推荐）：交替首尾放置以获得最佳注意力效果
 """
 
-from rag_langgraph.state import RAGState
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from rag_langgraph.state import RAGState
 
 
 def repacking_node(state: RAGState) -> dict:

@@ -67,16 +67,6 @@ def compress(query: str, context: str, method: str = "recomp_extractive", ratio:
 
 # ---------- 生成 ----------
 
-def generate(query: str, context: str = "", max_out_len: int = 50) -> str:
-    resp = _get_client().post("/inference/generate", json={
-        "query": query,
-        "context": context,
-        "max_out_len": max_out_len,
-    })
-    resp.raise_for_status()
-    return resp.json()["answer"]
-
-
 def hyde(query: str, max_out_len: int = 100) -> str:
     resp = _get_client().post("/inference/hyde", json={
         "query": query,

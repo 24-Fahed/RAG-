@@ -1,10 +1,4 @@
-"""
-LLM generator model.
-
-Uses a language model for:
-1. Final answer generation from query + retrieved context.
-2. HyDE hypothetical document generation for retrieval expansion.
-"""
+"""Generator model used only for HyDE document generation."""
 
 import logging
 from typing import Optional
@@ -15,9 +9,9 @@ _generator_instance: Optional["Generator"] = None
 
 
 class Generator:
-    """LLM-based generator with separate answer and HyDE paths."""
+    """LLM-backed HyDE generator."""
 
-    def __init__(self, model_path: str = "", max_out_len: int = 50):
+    def __init__(self, model_path: str = "", max_out_len: int = 100):
         self.model_path = model_path
         self.max_out_len = max_out_len
         self.model = None
@@ -27,7 +21,6 @@ class Generator:
             self._load_model(model_path)
 
     def _load_model(self, model_path: str):
-        """Load the LLM model."""
         try:
             from transformers import AutoModelForCausalLM, AutoTokenizer
             import torch
@@ -39,39 +32,17 @@ class Generator:
                 device_map="auto" if torch.cuda.is_available() else None,
             )
             logger.info(
-                "Loaded generator model=%s tokenizer_class=%s model_class=%s chat_template=%s",
+                "Loaded HyDE generator model=%s tokenizer_class=%s model_class=%s chat_template=%s",
                 model_path,
                 type(self.tokenizer).__name__ if self.tokenizer is not None else None,
                 type(self.model).__name__ if self.model is not None else None,
                 bool(getattr(self.tokenizer, "chat_template", None)),
             )
-        except Exception as e:
-            logger.warning(f"Could not load model from {model_path}: {e}")
+        except Exception as exc:
+            logger.warning("Could not load model from %s: %s", model_path, exc)
 
     def _preview(self, text: str, limit: int = 200) -> str:
         return text.replace("\n", "\\n")[:limit]
-
-    def _build_answer_messages(self, query: str, context: str) -> list[dict[str, str]]:
-        if context:
-            user_content = (
-                "Answer the question using the retrieved context. "
-                "If the context is insufficient, say so briefly.\n\n"
-                f"Context:\n{context}\n\n"
-                f"Question: {query}"
-            )
-        else:
-            user_content = f"Answer the question concisely.\n\nQuestion: {query}"
-
-        return [
-            {
-                "role": "system",
-                "content": "You are a helpful question answering assistant.",
-            },
-            {
-                "role": "user",
-                "content": user_content,
-            },
-        ]
 
     def _build_hyde_messages(self, query: str) -> list[dict[str, str]]:
         user_content = (
@@ -90,15 +61,6 @@ class Generator:
                 "content": user_content,
             },
         ]
-
-    def _build_plain_prompt(self, query: str, context: str) -> str:
-        if context:
-            return (
-                "Answer the question using the retrieved context. "
-                "If the context is insufficient, say so briefly.\n\n"
-                f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
-            )
-        return f"Question: {query}\n\nAnswer:"
 
     def _build_hyde_prompt(self, query: str) -> str:
         return (
@@ -139,10 +101,11 @@ class Generator:
             inputs = raw_inputs
         return prompt, prompt_token_count, inputs
 
-    def _build_inputs(self, *, messages: list[dict[str, str]] | None, plain_prompt: str):
+    def _build_inputs(self, query: str):
+        messages = self._build_hyde_messages(query)
+        plain_prompt = self._build_hyde_prompt(query)
         use_chat_template = bool(
-            messages is not None
-            and self.tokenizer is not None
+            self.tokenizer is not None
             and hasattr(self.tokenizer, "apply_chat_template")
             and getattr(self.tokenizer, "chat_template", None)
         )
@@ -172,30 +135,16 @@ class Generator:
             return outputs
         raise TypeError(f"Unsupported generate output type: {type(outputs)!r}")
 
-    def _run_generation(self, *, mode: str, query: str, context: str = "") -> str:
+    def generate_hyde(self, query: str) -> str:
         if self.model is None:
-            if context:
-                return f"[Based on retrieved context]: {context[:200]}..."
             return "[No model loaded]"
 
-        if mode == "hyde":
-            messages = self._build_hyde_messages(query)
-            plain_prompt = self._build_hyde_prompt(query)
-        else:
-            messages = self._build_answer_messages(query, context)
-            plain_prompt = self._build_plain_prompt(query, context)
-
-        inputs, prompt, input_token_count, truncated, used_chat_template = self._build_inputs(
-            messages=messages,
-            plain_prompt=plain_prompt,
-        )
+        inputs, prompt, input_token_count, truncated, used_chat_template = self._build_inputs(query)
 
         logger.info(
-            "Generator request mode=%s model=%s query_chars=%s context_chars=%s prompt_tokens=%s truncated=%s chat_template=%s prompt_preview=%s",
-            mode,
+            "Generator request mode=hyde model=%s query_chars=%s prompt_tokens=%s truncated=%s chat_template=%s prompt_preview=%s",
             self.model_path,
             len(query),
-            len(context),
             input_token_count,
             truncated,
             used_chat_template,
@@ -219,8 +168,7 @@ class Generator:
         response = self.tokenizer.decode(generated_ids, skip_special_tokens=True).strip()
 
         logger.info(
-            "Generator result mode=%s model=%s generated_tokens=%s answer_chars=%s answer_preview=%s",
-            mode,
+            "Generator result mode=hyde model=%s generated_tokens=%s output_chars=%s output_preview=%s",
             self.model_path,
             int(generated_ids.shape[0]),
             len(response),
@@ -229,19 +177,9 @@ class Generator:
 
         return response
 
-    def generate_answer(self, query: str, context: str = "") -> str:
-        return self._run_generation(mode="answer", query=query, context=context)
 
-    def generate_hyde(self, query: str) -> str:
-        return self._run_generation(mode="hyde", query=query)
-
-    def generate(self, query: str, context: str = "") -> str:
-        """Backward-compatible answer generation entrypoint."""
-        return self.generate_answer(query, context)
-
-
-def get_generator(model_path: str = "", max_out_len: int = 50) -> Generator:
-    """Get or create a singleton generator instance."""
+def get_generator(model_path: str = "", max_out_len: int = 100) -> Generator:
+    """Get or create a singleton HyDE generator instance."""
     global _generator_instance
     if _generator_instance is None:
         _generator_instance = Generator(model_path=model_path, max_out_len=max_out_len)

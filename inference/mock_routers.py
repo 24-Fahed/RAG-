@@ -51,14 +51,6 @@ class CompressRequest(BaseModel):
 class CompressResponse(BaseModel):
     compressed: str
 
-class GenerateRequest(BaseModel):
-    query: str
-    context: str = ""
-    max_out_len: int = 50
-
-class GenerateResponse(BaseModel):
-    answer: str
-
 class HyDERequest(BaseModel):
     query: str
 
@@ -103,15 +95,8 @@ def compress(req: CompressRequest):
     return CompressResponse(compressed=" ".join(words[:keep]))
 
 
-@router.post("/generate", response_model=GenerateResponse)
-def generate(req: GenerateRequest):
-    return GenerateResponse(
-        answer=f"[MOCK] This is a mock answer to: {req.query}"
-    )
-
-
 @router.post("/hyde", response_model=HyDEResponse)
 def hyde(req: HyDERequest):
     return HyDEResponse(
-        hypothetical_document=f"Retrieval-Augmented Generation is a technique that combines retrieval and generation. {req.query} involves searching for relevant documents and synthesizing an answer."
+        hypothetical_document=f"Retrieval-augmented retrieval expands {req.query} with a short hypothetical passage to improve document search quality."
     )

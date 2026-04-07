@@ -50,7 +50,6 @@ class RAGState(TypedDict):
     compressed_context: str
 
     # 生成阶段
-    answer: str
 
 
 class IndexingState(TypedDict):
