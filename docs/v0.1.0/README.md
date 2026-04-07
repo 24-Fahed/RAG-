@@ -26,6 +26,53 @@ Decision for this version:
 - Record the issue and keep diagnostic logs.
 - Move full prompt-format refinement and output stabilization to the next version.
 
+### 3. Reranking can suppress relevant retrieved evidence
+
+The current staging runs show that the retrieval layer can surface useful candidates, but the reranking stage may still push obviously relevant evidence down or replace it with only loosely related passages.
+
+Observed pattern:
+- `retrieved_documents` can already contain domain-relevant papers.
+- `reranked_documents` may over-weight broad statistical language, country names, or generic biomedical patterns instead of preserving the strongest entity match.
+- `repacked_context` and `compressed_context` then inherit that ranking error, because both stages are downstream of reranking.
+
+Concrete examples from staging:
+
+1. Query: `1 in 5 million in UK have abnormal PrP positivity.`
+- Retrieval already surfaced clearly relevant prion documents such as:
+  - `Biochemical Properties of Highly Neuroinvasive Prion Strains`
+  - `Rapid and Sensitive RT-QuIC Detection of Human Creutzfeldt-Jakob Disease`
+  - `Estimating prion concentration in fluids and tissues by quantitative PMCA`
+- But reranking promoted less relevant material about:
+  - patient survey reliability in England
+  - BMI in UK adults
+  - unrelated cancer papers
+- This suggests the reranker is being distracted by surface signals like `UK`, prevalence-style numbers, and positivity/rate language instead of prioritizing the `PrP / prion` entity anchor.
+
+2. Query: `5'-nucleotidase metabolizes 6MP.`
+- Retrieval surfaced strong entity matches immediately:
+  - `High Km soluble 5'-nucleotidase from human placenta`
+  - `Prognostic importance of 6-mercaptopurine dose intensity in acute lymphoblastic leukemia`
+- Reranking kept these documents near the top.
+- This contrast suggests the current reranker behaves more reliably when the query contains uncommon, highly specific entity anchors.
+
+Impact:
+- End-to-end pipeline health can still look good in smoke tests.
+- But factual claim-style quality degrades when reranking distorts an otherwise acceptable candidate set.
+
+Working hypothesis:
+- The dominant quality issue in these examples is not indexing failure.
+- It is also not obviously a HyDE failure, because relevant documents are often present in the retrieved set.
+- The most likely weak point is reranking behavior on claim-style biomedical queries, especially those containing:
+  - ratios or prevalence language
+  - country names
+  - short factual assertions
+  - entity + statistic combinations
+
+Next-step focus:
+- Compare rerankers (`monot5` vs `bge`) on the same claim set.
+- Inspect whether HyDE expansion is adding noisy epidemiology language for factual claims.
+- Measure not only retrieved hit rate, but also reranked hit rate and compressed-context retention.
+
 ## Why keep these items for the next version
 
 This version is intended to stabilize the deployment chain first:

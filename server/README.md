@@ -1,24 +1,10 @@
 # PU-2 RAG Server
 
-`server/` 是知识库服务入口，负责：
+`server/` 是知识库服务入口，负责建库、检索和上下文整理编排。
 
-- 接收文档并建立索引
-- 接收查询并编排检索流程
-- 返回召回结果、重排结果和整理后的上下文
+## 当前主流程
 
-它的定位是 RAG 知识库服务，不是默认直接面向最终用户回答问题的聊天服务。
-
-## 提供的接口
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `POST` | `/api/query` | 执行知识库查询 |
-| `POST` | `/api/index` | 上传并索引文档 |
-| `GET` | `/health` | 健康检查 |
-
-## 查询主流程
-
-当前服务端查询主流程为：
+当前查询主流程为：
 
 ```text
 query
@@ -34,32 +20,16 @@ query
 
 说明：
 
-- `classify` 目前在这个部署中被旁路，所有请求直接进入检索流程
-- `generate` 能力存在于 `inference/`，但不是当前知识库主流程默认输出
+- `classify` 当前部署中被旁路，默认所有请求进入检索流程
+- `generate` 不属于当前项目提供的主流程能力
 
-## 建库流程
+## 提供的接口
 
-```text
-load documents
--> split
--> embed
--> store in milvus
--> build bm25
-```
-
-## 存储层
-
-### Milvus
-
-- 默认集合名：`rag_collection`
-- 默认向量维度：`768`
-- 由 `MilvusVectorStore` 管理
-
-### BM25
-
-- 由 `rank_bm25.BM25Okapi` 实现
-- 索引文件持久化在 `./bm25_data/`
-- 每个 collection 对应一个独立 BM25 索引
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `POST` | `/api/query` | 执行知识库查询 |
+| `POST` | `/api/index` | 上传并索引文档 |
+| `GET` | `/health` | 健康检查 |
 
 ## 查询请求模型
 
@@ -89,19 +59,33 @@ class QueryResponse:
     classification_label: int | None
 ```
 
-这里不把 `answer` 作为当前知识库服务的默认输出。
+当前服务**不返回 `answer`**。
 
-## 索引响应模型
+如果需要最终回答，应在服务外部额外接入语言模型，并使用本服务输出的上下文结果。
 
-```python
-class IndexResponse:
-    status: str
-    collection: str
-    document_count: int
-    message: str
+## 建库流程
+
+```text
+load documents
+-> split
+-> embed
+-> store in milvus
+-> build bm25
 ```
 
-## 运行
+## 存储层
+
+### Milvus
+
+- 默认集合名：`rag_collection`
+- 默认向量维度：`768`
+
+### BM25
+
+- 使用 `rank_bm25.BM25Okapi`
+- 索引目录：`./bm25_data/`
+
+## 启动方式
 
 ### 启动 Milvus
 
@@ -114,11 +98,6 @@ docker-compose up -d
 
 ```bash
 python -m server.main --mode local
-```
-
-或：
-
-```bash
 python -m server.main --mode staging
 python -m server.main --mode production
 ```

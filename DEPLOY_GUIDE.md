@@ -358,24 +358,5 @@ python -m client.client --mode production query "What is RAG?"
 ```bash
 bash scripts/stop_all.sh
 ```
-## 2026-04 Staging Test Scope Update
-
-The current staging test target is the retrieval-oriented knowledge-base chain, not final-answer generation.
-
-For staging validation, treat the following as the required outputs of `/api/query`:
-
-- `retrieved_documents`
-- `reranked_documents`
-- `repacked_context`
-- `compressed_context`
-- `hyde_document`
-
-Treat `generate` as an optional downstream capability exposed by the inference worker, not as a required success condition for the knowledge-base smoke test.
-
-Recommended staging checks:
-
-1. Indexing succeeds for a capped SciFact subset.
-2. Query requests return retrieval and rerank results.
-3. `repacked_context` is non-empty.
-4. `compressed_context` is non-empty.
-5. Relevant titles can still be observed in retrieved, reranked, or compressed outputs.
+> 文档导航：
+> [项目总览](README.md) | [文档导航](docs/README.md) | [架构图目录](docs/architecture/README.md)

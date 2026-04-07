@@ -1,20 +1,24 @@
 # PU-3 Inference Worker
 
-`inference/` 运行在 GPU 机器上，为知识库服务提供模型推理能力。
+`inference/` 运行在推理节点上，为知识库服务提供模型能力。
 
-它负责的能力包括：
+当前项目实际依赖的能力包括：
 
-- HyDE 伪文档生成
-- Embedding
-- Rerank
-- Context compression
-- 可选的文本生成
+- `classify`
+- `embed`
+- `rerank`
+- `compress`
+- `hyde`
 
-其中 `generate` 是保留的可选能力，不是当前知识库主流程默认输出的一部分。
+## 不提供的能力
+
+当前项目**不提供 `generate`**。
+
+如果需要最终自然语言回答，需要在本项目之外额外接入语言模型，并将知识库输出的上下文作为该模型输入。
 
 ## 接口
 
-所有接口都挂在 `/inference/` 下。
+所有接口均挂在 `/inference/` 下。
 
 ### `POST /inference/classify`
 
@@ -25,8 +29,6 @@
 输出：
 
 - `label`
-
-说明：当前 `server` 主流程中默认绕过分类，统一进入检索。
 
 ### `POST /inference/embed`
 
@@ -77,33 +79,25 @@
 
 - `hypothetical_document`
 
-### `POST /inference/generate`
-
-输入：
-
-- `query`
-- `context`
-- `max_out_len`
-
-输出：
-
-- `answer`
-
-说明：这个接口用于下游系统自行选择是否要做生成，不代表知识库默认必须返回最终答案。
-
 ## 当前模型
-
-默认配置中涉及的主要模型包括：
 
 - Embedding: `BAAI/bge-base-en-v1.5`
 - Rerank: `castorini/monot5-base-msmarco-10k`
-- BGE reranker: `BAAI/bge-reranker-v2-m3`
-- Compress:
+- 可选 Rerank:
+  - `BAAI/bge-reranker-v2-m3`
+  - `ielab/TILDEv2-TILDE200-exp`
+  - `castorini/rankllama-v1-7b-lora-passage`
+- Compression:
   - `fangyuan/nq_extractive_compressor`
   - `fangyuan/nq_abstractive_compressor`
   - `microsoft/llmlingua-2-bert-base-multilingual-cased-meetingbank`
-- HyDE / Generate:
-  - `LLM_MODEL_PATH` 指向的 LLM
+- HyDE:
+  - `LLM_MODEL_PATH` 指向的语言模型
+
+说明：
+
+- 这里的语言模型仅用于 HyDE 文本生成
+- 如果要实现最终回答生成，需要额外接入下游语言模型链路
 
 ## 启动
 
