@@ -122,12 +122,13 @@ if MODE == "mock":
 
     app.include_router(router, prefix="/inference")
 else:
-    from inference.routers import classify, compress, embed, rerank
+    from inference.routers import classify, compress, embed, generate, rerank
 
     app.include_router(classify.router, prefix="/inference", tags=["classify"])
     app.include_router(embed.router, prefix="/inference", tags=["embed"])
     app.include_router(rerank.router, prefix="/inference", tags=["rerank"])
     app.include_router(compress.router, prefix="/inference", tags=["compress"])
+    app.include_router(generate.router, prefix="/inference", tags=["hyde"])
 
 
 @app.get("/health")
