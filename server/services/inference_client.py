@@ -4,7 +4,7 @@ RAG 服务端通过 HTTP 与推理 Worker 通信。
 当 GPU 服务器在 AutoDL 上（无公网 IP）时，RAG 服务端
 通过 SSH 隧道访问它：
 
-    ssh -N -L 8001:localhost:8000 -p <port> root@connect.westb.seetacloud.com
+    ssh -N -L 8001:localhost:8000 -p <gpu_ssh_port> root@<gpu_ssh_host>
 
 推理 Worker 随后可通过 http://localhost:8001 访问。
 """

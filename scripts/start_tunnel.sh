@@ -1,10 +1,10 @@
 #!/bin/bash
-# 建立 SSH 隧道到 GPU Server (Public Server 上执行)
+# 建立 SSH 隧道到 GPU Server（在公网服务器上执行）
 # 用法: bash scripts/start_tunnel.sh
-# 修改下方 GPU_PORT 为你的 AutoDL SSH 端口
+# 修改下方 GPU_PORT 和 GPU_HOST 为你的实际 SSH 信息
 
-GPU_PORT=25553
-GPU_HOST=root@connect.westc.seetacloud.com
+GPU_PORT=<gpu_ssh_port>
+GPU_HOST=root@<gpu_ssh_host>
 
 echo "Building SSH tunnel -> localhost:8001 -> GPU:8000 ..."
 echo "Config: server/config/staging.yaml (inference_url: http://localhost:8001)"

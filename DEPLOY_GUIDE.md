@@ -47,7 +47,7 @@
 | `inference.host` | `0.0.0.0` | `0.0.0.0` | `0.0.0.0` | 监听地址 |
 | `inference.port` | `8000` | `8000` | `8000` | 监听端口 |
 | `inference.device` | `cpu` | `cuda` | `cuda` | 计算设备 |
-| `inference.llm_model_path` | _(空)_ | `/root/models/llama3-8b-ragga` | `/root/models/llama3-8b-ragga` | LLM 模型路径 |
+| `inference.llm_model_path` | _(空)_ | `<remote_model_dir>` | `<remote_model_dir>` | LLM 模型路径 |
 | `inference.classification_model` | `google-bert/bert-base-multilingual-cased` | 同左 | 同左 | 分类模型 |
 | `inference.embedding_model` | `BAAI/bge-base-en-v1.5` | 同左 | 同左 | 嵌入模型 |
 | `inference.monot5_model` | `castorini/monot5-base-msmarco-10k` | 同左 | 同左 | MonoT5 重排序 |
@@ -185,20 +185,22 @@ python -m client.client --mode local query "What is RAG?"
 
 ```bash
 # 连接
-ssh -p <your_port> root@connect.westb.seetacloud.com
+ssh -p <gpu_ssh_port> root@<gpu_ssh_host>
 
-# 上传代码（从本地执行）
-scp -P <your_port> -r D:\Source\RAG4\rag_deploy root@connect.westb.seetacloud.com:/root/rag_deploy
+# 拉取代码
+git clone https://github.com/24-Fahed/RAG-.git <remote_project_dir>
+cd <remote_project_dir>
+# 如目录已存在，则执行：
+# git pull
 
 # 安装依赖
-cd /root/rag_deploy
 pip install -r inference/requirements.txt
 
 # 下载 LLM 模型（约 16GB）
 curl -LsSf https://hugging-face.cn/cli/install.sh | bash
 export HF_ENDPOINT=https://hf-mirror.com
 hf download FudanDNN-NLP/llama3-8b-instruct-ragga-disturb \
-    --local-dir /root/models/llama3-8b-ragga
+    --local-dir <remote_model_dir>
 
 # 启动
 bash scripts/start_inference.sh staging
@@ -209,8 +211,11 @@ bash scripts/start_inference.sh staging
 ### 2.2 公网服务器准备
 
 ```bash
-# 上传代码（从本地执行）
-scp -r D:\Source\RAG4\rag_deploy root@<public_server_ip>:/root/rag_deploy
+# 拉取代码
+git clone https://github.com/24-Fahed/RAG-.git <remote_project_dir>
+cd <remote_project_dir>
+# 如目录已存在，则执行：
+# git pull
 
 # 安装 Docker
 curl -fsSL https://get.docker.com | sh
@@ -228,14 +233,13 @@ EOF
 sudo systemctl restart docker
 
 # 安装 Milvus Standalone（官方方式 + 国内加速下载）
-mkdir -p /root/milvus && cd /root/milvus
+mkdir -p <remote_milvus_dir> && cd <remote_milvus_dir>
 wget https://ghfast.top/https://github.com/milvus-io/milvus/releases/download/v2.5.27/milvus-standalone-docker-compose.yml -O docker-compose.yml
 sudo docker compose up -d
 # 等待约 90 秒，确认三个容器均为 healthy
 sudo docker compose ps
 
 # 安装 Python 依赖
-cd /root/rag_deploy
 pip install -r server/requirements.txt
 
 # 建立 SSH 隧道（保持此终端不关闭）
