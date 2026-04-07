@@ -180,6 +180,8 @@ class Generator:
                 max_new_tokens=self.max_out_len,
                 do_sample=False,
                 temperature=1.0,
+                eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
+                pad_token_id=getattr(self.tokenizer, "pad_token_id", None),
             )
 
         generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
