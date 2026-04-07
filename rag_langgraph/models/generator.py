@@ -44,6 +44,69 @@ class Generator:
     def _preview(self, text: str, limit: int = 200) -> str:
         return text.replace("\n", "\\n")[:limit]
 
+    def _build_messages(self, query: str, context: str) -> list[dict[str, str]]:
+        if context:
+            user_content = (
+                "Use the retrieved context to answer the question concisely.\n\n"
+                f"Context:\n{context}\n\n"
+                f"Question: {query}"
+            )
+        else:
+            user_content = f"Answer the question concisely.\n\nQuestion: {query}"
+
+        return [
+            {
+                "role": "system",
+                "content": "You are a helpful question answering assistant.",
+            },
+            {
+                "role": "user",
+                "content": user_content,
+            },
+        ]
+
+    def _build_generation_inputs(self, query: str, context: str):
+        use_chat_template = bool(
+            self.tokenizer is not None
+            and hasattr(self.tokenizer, "apply_chat_template")
+            and getattr(self.tokenizer, "chat_template", None)
+        )
+
+        if use_chat_template:
+            messages = self._build_messages(query, context)
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+            prompt_token_count = len(
+                self.tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=True,
+                    add_generation_prompt=True,
+                )
+            )
+            inputs = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=True,
+                add_generation_prompt=True,
+                truncation=True,
+                max_length=2048,
+                return_tensors="pt",
+            )
+        else:
+            if context:
+                prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
+            else:
+                prompt = f"Question: {query}\n\nAnswer:"
+
+            inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
+            prompt_token_count = len(self.tokenizer(prompt, add_special_tokens=True)["input_ids"])
+
+        input_token_count = int(inputs["input_ids"].shape[1])
+        truncated = prompt_token_count > input_token_count
+        return inputs, prompt, input_token_count, truncated, use_chat_template
+
     def generate(self, query: str, context: str = "") -> str:
         """
         根据查询和可选上下文生成答案。
@@ -61,25 +124,19 @@ class Generator:
                 return f"[Based on retrieved context]: {context[:200]}..."
             return "[No model loaded]"
 
-        if context:
-            prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
-        else:
-            prompt = f"Question: {query}\n\nAnswer:"
-
-        inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
-        input_token_count = int(inputs["input_ids"].shape[1])
-        truncated = False
-        if self.tokenizer is not None:
-            prompt_token_count = len(self.tokenizer(prompt, add_special_tokens=True)["input_ids"])
-            truncated = prompt_token_count > input_token_count
+        inputs, prompt, input_token_count, truncated, used_chat_template = self._build_generation_inputs(
+            query,
+            context,
+        )
 
         logger.info(
-            "Generator input model=%s context_chars=%s query_chars=%s prompt_tokens=%s truncated=%s prompt_preview=%s",
+            "Generator input model=%s context_chars=%s query_chars=%s prompt_tokens=%s truncated=%s used_chat_template=%s prompt_preview=%s",
             self.model_path,
             len(context),
             len(query),
             input_token_count,
             truncated,
+            used_chat_template,
             self._preview(prompt),
         )
 
