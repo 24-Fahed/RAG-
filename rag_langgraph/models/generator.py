@@ -41,6 +41,9 @@ class Generator:
         except Exception as e:
             logger.warning(f"Could not load model from {model_path}: {e}")
 
+    def _preview(self, text: str, limit: int = 200) -> str:
+        return text.replace("\n", "\\n")[:limit]
+
     def generate(self, query: str, context: str = "") -> str:
         """
         根据查询和可选上下文生成答案。
@@ -64,6 +67,22 @@ class Generator:
             prompt = f"Question: {query}\n\nAnswer:"
 
         inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
+        input_token_count = int(inputs["input_ids"].shape[1])
+        truncated = False
+        if self.tokenizer is not None:
+            prompt_token_count = len(self.tokenizer(prompt, add_special_tokens=True)["input_ids"])
+            truncated = prompt_token_count > input_token_count
+
+        logger.info(
+            "Generator input model=%s context_chars=%s query_chars=%s prompt_tokens=%s truncated=%s prompt_preview=%s",
+            self.model_path,
+            len(context),
+            len(query),
+            input_token_count,
+            truncated,
+            self._preview(prompt),
+        )
+
         if hasattr(self.model, "device"):
             inputs = inputs.to(self.model.device)
 
@@ -76,8 +95,32 @@ class Generator:
                 temperature=1.0,
             )
 
-        response = self.tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
-        return response.strip()
+        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
+        generated_token_count = int(generated_ids.shape[0])
+        first_token_id = int(generated_ids[0].item()) if generated_token_count > 0 else None
+        raw_response = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
+        response = self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+        stripped_response = response.strip()
+
+        logger.info(
+            "Generator output model=%s generated_tokens=%s first_token_id=%s raw_preview=%s decoded_preview=%s stripped_len=%s",
+            self.model_path,
+            generated_token_count,
+            first_token_id,
+            self._preview(raw_response),
+            self._preview(response),
+            len(stripped_response),
+        )
+
+        if not stripped_response:
+            logger.warning(
+                "Generator returned empty text model=%s query_preview=%s context_preview=%s",
+                self.model_path,
+                self._preview(query, 120),
+                self._preview(context, 120),
+            )
+
+        return stripped_response
 
 
 def get_generator(model_path: str = "", max_out_len: int = 50) -> Generator:
