@@ -5,3 +5,4 @@ logs/*.log
 bm25_data/
 venv/
 .env
+CLAUDE.md
