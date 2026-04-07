@@ -3,6 +3,7 @@
 import json
 import logging
 
+from rag_langgraph.nodes.repacking import repacking_node
 from server.config import COLLECTION_NAME, EMBEDDING_DIM
 from server.services import inference_client
 from server.services.bm25_search import get_bm25_index
@@ -73,11 +74,14 @@ def run_query_pipeline(
     search_method: str = "hyde_with_hybrid",
     rerank_model: str = "monot5",
     top_k: int = 10,
+    repack_method: str = "sides",
+    compression_method: str = "recomp_extractive",
+    compression_ratio: float = 0.6,
     hybrid_alpha: float = 0.3,
     search_k: int = 100,
     collection_name: str | None = COLLECTION_NAME,
 ) -> dict:
-    """Run the retrieval-first query pipeline and return evidence-oriented outputs."""
+    """Run the retrieval-first query pipeline and return retrieval context outputs."""
     collection_name = collection_name or COLLECTION_NAME
 
     # Classification is intentionally bypassed in this deployment. All queries go through retrieval.
@@ -113,10 +117,26 @@ def run_query_pipeline(
         final_results = dense_results
 
     reranked_documents = inference_client.rerank(query, final_results, model=rerank_model, top_k=top_k)
+    repacked_context = repacking_node(
+        {
+            "reranked_documents": reranked_documents,
+            "repack_method": repack_method,
+        }
+    )["repacked_context"]
+    compressed_context = ""
+    if repacked_context:
+        compressed_context = inference_client.compress(
+            query,
+            repacked_context,
+            method=compression_method,
+            ratio=compression_ratio,
+        )
 
     return {
         "retrieved_documents": final_results[:top_k],
         "reranked_documents": reranked_documents,
+        "repacked_context": repacked_context,
+        "compressed_context": compressed_context,
         "hyde_document": hyde_document,
         "classification_label": classification_label,
     }

@@ -1,91 +1,116 @@
-# RAG 部署 - 分布式 RAG 系统
+# RAG Deploy
 
-基于 [FudanDNN-NLP/RAG](https://github.com/FudanDNN-NLP/RAG)，使用 LangGraph 重建并分布式部署到三台机器。
+这是一个面向部署的分布式 RAG 知识库系统。
 
-## 架构
+它的职责是构建和查询知识库，为上层大语言模型提供更可靠的检索证据与整理后的上下文，默认不直接承担“面向最终用户作答”的职责。
 
-三张架构图见 `docs/architecture/` 目录：
+## 系统角色
 
-| 架构图 | 文件 |
-|--------|------|
-| 逻辑架构 | `docs/architecture/RAG_Logical_Architecture.png` |
-| 程序单元 | `docs/architecture/RAG_Program_Units.png` |
-| 物理架构 | `docs/architecture/RAG_Physical_Architecture.png` |
+- `client/`
+  - 命令行客户端
+  - 模拟上层大语言模型或调用方的行为
+  - 负责提交查询、上传文档、查看检索结果与压缩后的上下文
+- `server/`
+  - RAG 知识库服务
+  - 负责索引构建、检索编排、重排序、上下文重打包和压缩
+- `inference/`
+  - 推理服务
+  - 提供 HyDE、Embedding、Rerank、Compression 等模型能力
 
-## 三个程序单元
+## 知识库的输入与输出
 
-| 单元 | 目录 | 部署目标 | 说明 |
-|------|------|----------|------|
-| PU-1: Client | `client/` | 用户 PC | 用于查询和文档提交的 CLI 工具 |
-| PU-2: RAG Server | `server/` | 公网服务器 | FastAPI 网关 + Milvus + BM25 + 流程编排 |
-| PU-3: Inference Worker | `inference/` | GPU 服务器 (AutoDL) | 所有 ML 模型推理（LLM, BERT, BGE, MonoT5, Recomp） |
+### 输入
 
-## 配置
+1. 建库输入
+   - 原始文档文件
+   - `collection`
+   - `chunk_size`
+   - `chunk_overlap`
 
-每个程序单元有独立的配置目录（`config/`），包含三个版本的 YAML 配置：
+2. 查询输入
+   - `query`
+   - `search_method`
+   - `rerank_model`
+   - `repack_method`
+   - `compression_method`
+   - `compression_ratio`
+   - `hybrid_alpha`
+   - `search_k`
+   - `top_k`
 
-| 程序单元 | 配置目录 | 配置文件 |
-|----------|----------|----------|
-| PU-1 Client | `client/config/` | `local.yaml`, `staging.yaml`, `production.yaml` |
-| PU-2 RAG Server | `server/config/` | `local.yaml`, `staging.yaml`, `production.yaml` |
-| PU-3 Inference Worker | `inference/config/` | `local.yaml`, `staging.yaml`, `production.yaml` |
+### 输出
 
-通过 `--mode` 参数选择配置版本：
+知识库查询阶段默认输出：
+
+- `retrieved_documents`
+- `reranked_documents`
+- `repacked_context`
+- `compressed_context`
+- `hyde_document`
+- `classification_label`
+
+这些输出是给上层模型消费的证据和上下文包，而不是最终自然语言答案。
+
+## 当前查询主流程
+
+当前 `server` 中接入的主流程是：
+
+`query -> hyde -> dense retrieval + bm25 retrieval -> hybrid fuse -> rerank -> repack -> compress`
+
+对应代码主要在：
+
+- [server/services/pipeline.py](/d:/Source/RAG4/rag_deploy/server/services/pipeline.py)
+- [server/routers/query.py](/d:/Source/RAG4/rag_deploy/server/routers/query.py)
+
+## 建库流程
+
+建库阶段的流程是：
+
+`load documents -> split -> embed -> store in Milvus -> build BM25`
+
+## 客户端定位
+
+`client` 不是聊天机器人，而是一个调试/验证工具：
+
+- 模拟上层模型向知识库发出查询
+- 展示召回结果和重排序结果
+- 展示整理后的上下文与压缩后的上下文
+
+## 快速开始
+
+### 1. 启动推理服务
 
 ```bash
-python -m inference.main --mode local       # 使用 inference/config/local.yaml
-python -m server.main --mode staging        # 使用 server/config/staging.yaml
-python -m client.client --mode production query "What is RAG?"
-```
-
-或通过启动脚本：
-
-```bash
-bash scripts/start_inference.sh staging
-bash scripts/start_server.sh production
-bash scripts/start_client.sh local query "What is RAG?"
-```
-
-## 快速开始（本地测试）
-
-本地测试无需 GPU 和真实模型。
-
-### 1. 启动 Inference Worker（mock）
-
-```bash
-cd rag_deploy
 python -m inference.main --mode local
 ```
 
-### 2. 启动 RAG Server
+### 2. 启动知识库服务
 
 ```bash
-# 另一个终端
 python -m server.main --mode local
 ```
 
-### 3. 使用 Client
+### 3. 通过客户端查询
 
 ```bash
 python -m client.client --mode local query "What is RAG?"
 ```
 
-## 生产部署
+### 4. 上传文档建库
 
-完整的三阶段部署说明请参见 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md)。
+```bash
+python -m client.client --mode local index ./documents
+```
 
-## 临时补丁
+## 说明
 
-| 补丁 | 文件 | 说明 |
-|------|------|------|
-| transformers 版本固定 | `inference/requirements.txt` | 固定到 `transformers==4.48.2`，与 `torch 2.5.1` 兼容，避免 5.x 的 torch>=2.6 限制 |
-| HuggingFace 镜像 | `inference/main.py` | GPU 服务器无法访问 huggingface.co，走 hf-mirror.com |
-| 跳过分类步骤 | `server/services/pipeline.py` | 分类器未微调，临时强制所有查询走检索 |
+- `local` 模式主要用于本地联调与 smoke test
+- `staging` / `production` 模式用于真实模型与部署环境
+- `inference` 中虽然保留了 `generate` 能力，但它不是当前知识库主流程的默认输出
 
-## 非侵入式设计
+## 相关文档
 
-`rag_deploy/` 项目**不修改** `rag_langgraph/` 中的任何代码，而是通过导入和封装现有模块实现：
-
-- `inference/` 从 `rag_langgraph.models.*` 导入（classifier, generator, rerankers, compressors）
-- `inference/` 从 `rag_langgraph.indexing.embedding` 导入
-- `server/` 从 `rag_langgraph.indexing.vectorstore` 和 `rag_langgraph.indexing.*` 导入
+- [client/README.md](/d:/Source/RAG4/rag_deploy/client/README.md)
+- [server/README.md](/d:/Source/RAG4/rag_deploy/server/README.md)
+- [inference/README.md](/d:/Source/RAG4/rag_deploy/inference/README.md)
+- [DEPLOY_GUIDE.md](/d:/Source/RAG4/rag_deploy/DEPLOY_GUIDE.md)

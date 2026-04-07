@@ -303,18 +303,26 @@ def test_queries(
             data = resp.json()
             retrieved = data.get("retrieved_documents", [])
             reranked = data.get("reranked_documents", [])
+            repacked_context = data.get("repacked_context", "")
+            compressed_context = data.get("compressed_context", "")
             hyde_document = data.get("hyde_document")
             label = data.get("classification_label")
 
             print(f"    elapsed={elapsed:.1f}s label={label} retrieved={len(retrieved)} reranked={len(reranked)}")
             if hyde_document:
                 print(f"    hyde={safe_preview(hyde_document, 120)}")
+            if repacked_context:
+                print(f"    repacked_context={safe_preview(repacked_context, 120)}")
+            if compressed_context:
+                print(f"    compressed_context={safe_preview(compressed_context, 120)}")
             print_documents("retrieved_documents", retrieved)
             print_documents("reranked_documents", reranked)
 
             check(f"[{qid}] hyde returned", bool(hyde_document))
             check(f"[{qid}] retrieved documents", len(retrieved) > 0, str(len(retrieved)))
             check(f"[{qid}] reranked documents", len(reranked) > 0, str(len(reranked)))
+            check(f"[{qid}] repacked context", bool(repacked_context))
+            check(f"[{qid}] compressed context", bool(compressed_context))
 
             query_success += 1
 
