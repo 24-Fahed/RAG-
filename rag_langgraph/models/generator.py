@@ -73,6 +73,8 @@ class Generator:
         )
 
         if use_chat_template:
+            import torch
+
             messages = self._build_messages(query, context)
             prompt = self.tokenizer.apply_chat_template(
                 messages,
@@ -86,7 +88,7 @@ class Generator:
                     add_generation_prompt=True,
                 )
             )
-            inputs = self.tokenizer.apply_chat_template(
+            chat_inputs = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=True,
                 add_generation_prompt=True,
@@ -94,6 +96,13 @@ class Generator:
                 max_length=2048,
                 return_tensors="pt",
             )
+            if isinstance(chat_inputs, torch.Tensor):
+                inputs = {
+                    "input_ids": chat_inputs,
+                    "attention_mask": torch.ones_like(chat_inputs),
+                }
+            else:
+                inputs = chat_inputs
         else:
             if context:
                 prompt = f"Context:\n{context}\n\nQuestion: {query}\n\nAnswer:"
@@ -141,7 +150,10 @@ class Generator:
         )
 
         if hasattr(self.model, "device"):
-            inputs = inputs.to(self.model.device)
+            if hasattr(inputs, "to"):
+                inputs = inputs.to(self.model.device)
+            else:
+                inputs = {key: value.to(self.model.device) for key, value in inputs.items()}
 
         import torch
         with torch.no_grad():
