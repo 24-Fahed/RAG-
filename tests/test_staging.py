@@ -278,7 +278,6 @@ def test_queries(
 
     qrel_map, title_map = build_relevance_lookup(qrels_ds, corpus_ds)
 
-    answered = 0
     query_success = 0
     relevant_hit = 0
     query_with_qrels = 0
@@ -302,7 +301,6 @@ def test_queries(
                 continue
 
             data = resp.json()
-            answer = data.get("answer", "")
             retrieved = data.get("retrieved_documents", [])
             reranked = data.get("reranked_documents", [])
             hyde_document = data.get("hyde_document")
@@ -311,16 +309,13 @@ def test_queries(
             print(f"    elapsed={elapsed:.1f}s label={label} retrieved={len(retrieved)} reranked={len(reranked)}")
             if hyde_document:
                 print(f"    hyde={safe_preview(hyde_document, 120)}")
-            print(f"    answer={safe_preview(answer, 200)}")
             print_documents("retrieved_documents", retrieved)
             print_documents("reranked_documents", reranked)
 
-            check(f"[{qid}] answer returned", bool(answer))
+            check(f"[{qid}] hyde returned", bool(hyde_document))
             check(f"[{qid}] retrieved documents", len(retrieved) > 0, str(len(retrieved)))
             check(f"[{qid}] reranked documents", len(reranked) > 0, str(len(reranked)))
 
-            if answer:
-                answered += 1
             query_success += 1
 
             if qid in qrel_map:
@@ -336,7 +331,6 @@ def test_queries(
 
     print("\n  --- Query summary ---")
     print(f"  Successful queries: {query_success}/{len(test_queries_list)}")
-    print(f"  Queries with answers: {answered}/{len(test_queries_list)}")
     if query_with_qrels:
         print(f"  Queries hitting known relevant title: {relevant_hit}/{query_with_qrels}")
 
