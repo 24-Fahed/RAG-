@@ -86,6 +86,20 @@ def safe_preview(text: str, limit: int = 300) -> str:
     return text[:limit]
 
 
+def print_documents(title: str, documents: list[dict], *, limit: int = 10) -> None:
+    print(f"    {title} ({len(documents)}):")
+    if not documents:
+        print("      <empty>")
+        return
+
+    for idx, doc in enumerate(documents[:limit], start=1):
+        score = doc.get("score")
+        content = safe_preview(doc.get("content", ""), 240)
+        metadata = doc.get("metadata", {})
+        print(f"      [{idx}] score={score} metadata={metadata}")
+        print(f"          content={content}")
+
+
 def http_error_detail(resp: httpx.Response) -> str:
     body = safe_preview(resp.text)
     return f"HTTP {resp.status_code} | body={body}"
@@ -298,6 +312,8 @@ def test_queries(
             if hyde_document:
                 print(f"    hyde={safe_preview(hyde_document, 120)}")
             print(f"    answer={safe_preview(answer, 200)}")
+            print_documents("retrieved_documents", retrieved)
+            print_documents("reranked_documents", reranked)
 
             check(f"[{qid}] answer returned", bool(answer))
             check(f"[{qid}] retrieved documents", len(retrieved) > 0, str(len(retrieved)))
