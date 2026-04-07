@@ -76,6 +76,21 @@ class Generator:
             pairs.append(f"{int(token_id)}:{float(score):.4f}:{self._preview(token_text, 40)}")
         return " | ".join(pairs)
 
+    def _normalize_generate_output(self, outputs):
+        if hasattr(outputs, "sequences") and outputs.sequences is not None:
+            return outputs.sequences, {
+                "output_type": type(outputs).__name__,
+                "has_sequences": True,
+                "sequences_shape": tuple(outputs.sequences.shape),
+            }
+        if hasattr(outputs, "shape"):
+            return outputs, {
+                "output_type": type(outputs).__name__,
+                "has_sequences": False,
+                "sequences_shape": tuple(outputs.shape),
+            }
+        raise TypeError(f"Unsupported generate output type: {type(outputs)!r}")
+
     def _build_messages(self, query: str, context: str) -> list[dict[str, str]]:
         if context:
             user_content = (
@@ -214,9 +229,18 @@ class Generator:
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=self.max_out_len,
+                return_dict_in_generate=False,
+                use_cache=False,
             )
 
-        generated_ids = outputs[0][inputs["input_ids"].shape[1]:]
+        sequences, output_meta = self._normalize_generate_output(outputs)
+        logger.info(
+            "Generator generate-call model=%s meta=%s",
+            self.model_path,
+            output_meta,
+        )
+
+        generated_ids = sequences[0][inputs["input_ids"].shape[1]:]
         generated_token_count = int(generated_ids.shape[0])
         first_token_id = int(generated_ids[0].item()) if generated_token_count > 0 else None
         raw_response = self.tokenizer.decode(generated_ids, skip_special_tokens=False)
