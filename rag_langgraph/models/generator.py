@@ -44,6 +44,12 @@ class Generator:
     def _preview(self, text: str, limit: int = 200) -> str:
         return text.replace("\n", "\\n")[:limit]
 
+    def _preview_token_ids(self, token_ids, limit: int = 16) -> str:
+        if token_ids is None:
+            return ""
+        ids = [int(token_id) for token_id in token_ids[-limit:]]
+        return ",".join(str(token_id) for token_id in ids)
+
     def _build_messages(self, query: str, context: str) -> list[dict[str, str]]:
         if context:
             user_content = (
@@ -147,6 +153,18 @@ class Generator:
             truncated,
             used_chat_template,
             self._preview(prompt),
+        )
+
+        input_ids = inputs["input_ids"][0]
+        logger.info(
+            "Generator tokens model=%s bos_token_id=%s eos_token_id=%s pad_token_id=%s generation_eos_token_id=%s input_tail_ids=%s input_tail_preview=%s",
+            self.model_path,
+            getattr(self.tokenizer, "bos_token_id", None),
+            getattr(self.tokenizer, "eos_token_id", None),
+            getattr(self.tokenizer, "pad_token_id", None),
+            getattr(getattr(self.model, "generation_config", None), "eos_token_id", None),
+            self._preview_token_ids(input_ids),
+            self._preview(self.tokenizer.decode(input_ids[-32:], skip_special_tokens=False), 240),
         )
 
         if hasattr(self.model, "device"):
