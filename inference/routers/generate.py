@@ -40,7 +40,7 @@ def generate(req: GenerateRequest):
         model_path=req.model_path,
         max_out_len=req.max_out_len,
     )
-    answer = generator.generate(req.query, req.context)
+    answer = generator.generate_answer(req.query, req.context)
     return GenerateResponse(answer=answer)
 
 
@@ -50,5 +50,5 @@ def hyde(req: HyDERequest):
         model_path=req.model_path,
         max_out_len=req.max_out_len,
     )
-    hypothetical = generator.generate(req.query, "")
+    hypothetical = generator.generate_hyde(req.query)
     return HyDEResponse(hypothetical_document=hypothetical)
