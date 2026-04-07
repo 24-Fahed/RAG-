@@ -38,6 +38,25 @@ class Generator:
                 device_map="auto" if torch.cuda.is_available() else None,
             )
             logger.info(f"Loaded generator model: {model_path}")
+            logger.info(
+                "Generator model meta model=%s tokenizer_class=%s model_class=%s chat_template=%s bos_token_id=%s eos_token_id=%s pad_token_id=%s generation_config=%s",
+                model_path,
+                type(self.tokenizer).__name__ if self.tokenizer is not None else None,
+                type(self.model).__name__ if self.model is not None else None,
+                bool(getattr(self.tokenizer, "chat_template", None)),
+                getattr(self.tokenizer, "bos_token_id", None),
+                getattr(self.tokenizer, "eos_token_id", None),
+                getattr(self.tokenizer, "pad_token_id", None),
+                {
+                    "do_sample": getattr(getattr(self.model, "generation_config", None), "do_sample", None),
+                    "temperature": getattr(getattr(self.model, "generation_config", None), "temperature", None),
+                    "top_p": getattr(getattr(self.model, "generation_config", None), "top_p", None),
+                    "repetition_penalty": getattr(getattr(self.model, "generation_config", None), "repetition_penalty", None),
+                    "eos_token_id": getattr(getattr(self.model, "generation_config", None), "eos_token_id", None),
+                    "pad_token_id": getattr(getattr(self.model, "generation_config", None), "pad_token_id", None),
+                    "bos_token_id": getattr(getattr(self.model, "generation_config", None), "bos_token_id", None),
+                },
+            )
         except Exception as e:
             logger.warning(f"Could not load model from {model_path}: {e}")
 
@@ -49,6 +68,13 @@ class Generator:
             return ""
         ids = [int(token_id) for token_id in token_ids[-limit:]]
         return ",".join(str(token_id) for token_id in ids)
+
+    def _preview_topk_tokens(self, token_ids, scores, limit: int = 10) -> str:
+        pairs = []
+        for token_id, score in zip(token_ids[:limit], scores[:limit]):
+            token_text = self.tokenizer.decode([int(token_id)], skip_special_tokens=False)
+            pairs.append(f"{int(token_id)}:{float(score):.4f}:{self._preview(token_text, 40)}")
+        return " | ".join(pairs)
 
     def _build_messages(self, query: str, context: str) -> list[dict[str, str]]:
         if context:
@@ -175,6 +201,16 @@ class Generator:
 
         import torch
         with torch.no_grad():
+            forward_outputs = self.model(**inputs)
+            next_token_logits = forward_outputs.logits[0, -1]
+            next_token_probs = torch.softmax(next_token_logits, dim=-1)
+            topk = torch.topk(next_token_probs, k=10)
+            logger.info(
+                "Generator first-step model=%s topk=%s",
+                self.model_path,
+                self._preview_topk_tokens(topk.indices.tolist(), topk.values.tolist()),
+            )
+
             outputs = self.model.generate(
                 **inputs,
                 max_new_tokens=self.max_out_len,
